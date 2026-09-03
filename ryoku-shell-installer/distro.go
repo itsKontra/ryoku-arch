@@ -167,7 +167,8 @@ var fedoraLinux = &distro{
 		"vulkan-icd-loader":             "vulkan-loader",
 		"xorg-xwayland":                 "xorg-x11-server-Xwayland",
 
-		// Absent from official Fedora repos or pacman/Arch-specific: skipped during package install.
+		// Absent from official Fedora repos or pacman/Arch-specific.
+		// Handled directly as zero-compile prebuilt releases (installDesktopExtras):
 		"awww":                          "",
 		"blesh":                         "",
 		"broadcom-bt-firmware":          "",

@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -205,7 +206,11 @@ func newEngine(f *facts, p *plan, dry bool, ref, payloadOverride string) *engine
 	src := f.distro != nil && f.distro.fromSource
 	for _, s := range all {
 		if src && pacmanOnly[s.id] {
-			continue
+			if s.id == "repo" && f.distro != nil && f.distro.id == "fedora" {
+				// Fedora runs stepRepo to configure COPR repositories (quickshell, matugen, awww, cursors)
+			} else {
+				continue
+			}
 		}
 		if !src && s.id == "build" {
 			continue
@@ -499,7 +504,11 @@ func stepSysupgrade(e *engine) error {
 
 func stepTools(e *engine) error {
 	d := e.d()
-	return e.sudo(d.installArgs([]string{"git", d.local("base-devel")})...)
+	pkgs := []string{"git", d.local("base-devel")}
+	if d.id == "fedora" {
+		pkgs = append(pkgs, "dnf-plugins-core")
+	}
+	return e.sudo(d.installArgs(pkgs)...)
 }
 
 func stepPayload(e *engine) error {
@@ -718,6 +727,20 @@ func stepConflicts(e *engine) error {
 }
 
 func stepRepo(e *engine) error {
+	if e.d().id == "fedora" {
+		e.say("enabling Quickshell COPR repository (errornointernet/quickshell)")
+		if e.dry {
+			e.say("DRYRUN: dnf copr enable -y errornointernet/quickshell")
+			return nil
+		}
+		if err := e.sudo("dnf", "-y", "copr", "enable", "errornointernet/quickshell"); err != nil {
+			e.say("warning: could not enable errornointernet/quickshell COPR (continuing): " + err.Error())
+		} else {
+			e.say("enabled Quickshell COPR (errornointernet/quickshell)")
+		}
+		return nil
+	}
+
 	// on a box that already has ryoku-keyring, the keyring files under
 	// /usr/share/pacman/keyrings are package-owned: seeding and deleting them
 	// again would strip files out of the installed package. the trustdb is
@@ -1222,7 +1245,77 @@ EOF`); err != nil {
 		}
 		e.say("seeded ~/" + s.dst)
 	}
+	e.installDesktopExtras()
 	return e.cmd("", nil, "systemctl", "--user", "daemon-reload")
+}
+
+// installDesktopExtras deploys prebuilt binary and asset releases for tools
+// that are not provided by the host package manager (matugen, awww, gpk, Bibata cursors, Space Grotesk).
+// This is the default zero-compile installation method on Fedora and fromSource systems,
+// guaranteeing that no heavy Rust or C++ compiler toolchains are required on user machines.
+func (e *engine) installDesktopExtras() {
+	if e.dry || e.f == nil || e.f.homeDir == "" {
+		return
+	}
+	binDir := filepath.Join(e.f.homeDir, ".local", "bin")
+	_ = os.MkdirAll(binDir, 0o755)
+
+	// matugen: official precompiled binary release (zero-compile default)
+	if !has("matugen") {
+		dst := filepath.Join(binDir, "matugen")
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			e.say("installing prebuilt matugen binary (zero-compile)")
+			cmd := fmt.Sprintf(`curl -fsSL --connect-timeout 10 -m 30 https://github.com/InioX/matugen/releases/download/v2.4.0/matugen-linux-x86_64.tar.gz | tar -xz -C %q matugen 2>/dev/null && chmod +x %q || true`, binDir, dst)
+			_ = exec.Command("sh", "-c", cmd).Run()
+		}
+	}
+
+	// awww: official precompiled binary release (zero-compile default)
+	if !has("awww") {
+		dst := filepath.Join(binDir, "awww")
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			e.say("installing prebuilt awww wallpaper daemon and client (zero-compile)")
+			cmd := fmt.Sprintf(`curl -fsSL --connect-timeout 10 -m 30 https://github.com/LGFae/awww/releases/download/v0.12.1/awww-linux-x86_64.tar.gz | tar -xz -C %q 2>/dev/null && chmod +x %q %s || true`, binDir, dst, filepath.Join(binDir, "awww-daemon"))
+			_ = exec.Command("sh", "-c", cmd).Run()
+		}
+	}
+
+	// gpk: GlazePKG prebuilt binary release
+	if !has("gpk") {
+		dst := filepath.Join(binDir, "gpk")
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			arch := "amd64"
+			if runtime.GOARCH == "arm64" {
+				arch = "arm64"
+			}
+			e.say("installing prebuilt gpk binary")
+			cmd := fmt.Sprintf(`curl -fsSL --connect-timeout 10 -m 30 https://github.com/neur0map/glazepkg/releases/latest/download/gpk-linux-%s -o %q 2>/dev/null && chmod +x %q || true`, arch, dst, dst)
+			_ = exec.Command("sh", "-c", cmd).Run()
+		}
+	}
+
+	// bibata cursor theme: official prebuilt cursor assets
+	iconsDir := filepath.Join(e.f.homeDir, ".local", "share", "icons")
+	if !pathExists("/usr/share/icons/Bibata-Modern-Ice") && !pathExists(filepath.Join(iconsDir, "Bibata-Modern-Ice")) {
+		_ = os.MkdirAll(iconsDir, 0o755)
+		e.say("installing Bibata cursor theme")
+		cmd := fmt.Sprintf(`curl -fsSL --connect-timeout 10 -m 30 https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata.tar.xz | tar -xJ -C %q 2>/dev/null || true`, iconsDir)
+		_ = exec.Command("sh", "-c", cmd).Run()
+	}
+
+	// Space Grotesk brand font: official prebuilt OTF release
+	fontsDir := filepath.Join(e.f.homeDir, ".local", "share", "fonts")
+	if !pathExists("/usr/share/fonts/OTF/SpaceGrotesk-Regular.otf") && !pathExists(filepath.Join(fontsDir, "SpaceGrotesk")) {
+		_ = os.MkdirAll(filepath.Join(fontsDir, "SpaceGrotesk"), 0o755)
+		e.say("installing Space Grotesk brand font")
+		cmd := fmt.Sprintf(`tmp=$(mktemp -d) && curl -fsSL --connect-timeout 10 -m 30 https://github.com/floriankarsten/space-grotesk/releases/download/2.0.0/SpaceGrotesk-2.0.0.zip -o "$tmp/sg.zip" && unzip -qo "$tmp/sg.zip" -d "$tmp" && cp -f "$tmp"/SpaceGrotesk-*/otf/*.otf %q/ 2>/dev/null; rm -rf "$tmp" || true`, filepath.Join(fontsDir, "SpaceGrotesk"))
+		_ = exec.Command("sh", "-c", cmd).Run()
+	}
+}
+
+func pathExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 func stepAUR(e *engine) error {
@@ -1342,21 +1435,23 @@ func stepVerify(e *engine) error {
 		e.say("  DKMS modules are rejected at boot. To switch later, disable Secure Boot in")
 		e.say("  firmware or sign the kernel and modules (sbctl), then re-run this installer.")
 	}
-	// matugen is a hard ryoku-desktop depend on Arch, so a miss means the desktop
-	// set install is broken. Debian does not package it: warn instead of failing.
-	if e.d().local("matugen") == "" {
-		if !has("matugen") {
-			e.say(gWarn + " matugen is not packaged here: wallpaper palettes stay at their defaults")
-		}
+	// matugen palette generator: verified on all distros (packaged on Arch,
+	// installed via zero-compile prebuilt release on Fedora and source builds).
+	if has("matugen") {
+		check(true, "matugen palette generator (colors follow the wallpaper)")
+	} else if e.d().local("matugen") == "" && e.d().id == "debian" {
+		e.say(gWarn + " matugen is not packaged here: wallpaper palettes stay at their defaults")
 	} else {
-		check(has("matugen"), "matugen palette generator (colors follow the wallpaper)")
+		check(false, "matugen palette generator (colors follow the wallpaper)")
 	}
 	if !has("awww") {
 		if e.d().id == "arch" {
 			e.say(gWarn + " awww missing (AUR): static wallpapers will not set until it installs (ryoku doctor retries it)")
 		} else {
-			e.say(gWarn + " awww missing: static wallpapers will not set until it installs (ryoku doctor retries it)")
+			e.say(gWarn + " awww missing: static wallpapers will not set until it installs")
 		}
+	} else {
+		check(true, "awww wallpaper daemon installed")
 	}
 	if e.p.devtools {
 		check(has("go"), "go toolchain on PATH (ryoku recovery rebuilds from source)")

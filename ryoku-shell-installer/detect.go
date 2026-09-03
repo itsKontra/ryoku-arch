@@ -133,8 +133,15 @@ func out(name string, args ...string) string {
 }
 
 func has(name string) bool {
-	_, err := exec.LookPath(name)
-	return err == nil
+	if _, err := exec.LookPath(name); err == nil {
+		return true
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if fi, err := os.Stat(filepath.Join(home, ".local", "bin", name)); err == nil && !fi.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 func pacmanHas(pkg string) bool { return installed(pkg) }
