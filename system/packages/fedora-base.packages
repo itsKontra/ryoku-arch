@@ -43,9 +43,7 @@ pavucontrol
 
 # Hyprland & Wayland compositor stack
 hyprland
-hyprland-devel
 hyprlang
-hyprutils-devel
 hyprlock
 hypridle
 hyprsunset

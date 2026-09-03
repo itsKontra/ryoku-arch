@@ -93,7 +93,7 @@ func TestInstallArgs(t *testing.T) {
 		t.Errorf("debian removeArgs = %q", got)
 	}
 	got = strings.Join(fedoraLinux.installArgs([]string{"git"}), " ")
-	if got != "dnf -y install git" {
+	if got != "dnf -y install --skip-unavailable --allowerasing git" {
 		t.Errorf("fedora installArgs = %q", got)
 	}
 	got = strings.Join(fedoraLinux.removeArgs([]string{"dunst"}), " ")

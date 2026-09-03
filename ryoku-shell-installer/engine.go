@@ -870,6 +870,31 @@ func (e *engine) dropSatisfied(pkgs []string) []string {
 	if e.dry || len(pkgs) == 0 {
 		return pkgs
 	}
+	if e.d().id == "fedora" {
+		var keep []string
+		for _, p := range pkgs {
+			if p == "" {
+				continue
+			}
+			if e.d().installedPkg(p) {
+				continue
+			}
+			if p == "power-profiles-daemon" && (e.d().installedPkg("tuned-ppd") || rpmProvides("ppd-service")) {
+				continue
+			}
+			if (p == "ffmpeg" || p == "ffmpeg-free") && (e.d().installedPkg("ffmpeg-free") || pathExists("/usr/bin/ffmpeg")) {
+				continue
+			}
+			if rpmProvides(p) {
+				continue
+			}
+			keep = append(keep, p)
+		}
+		if len(keep) < len(pkgs) {
+			e.say(fmt.Sprintf("%d of %d packages already satisfied on Fedora", len(pkgs)-len(keep), len(pkgs)))
+		}
+		return keep
+	}
 	if e.d().id != "arch" {
 		return pkgs
 	}
@@ -884,6 +909,10 @@ func (e *engine) dropSatisfied(pkgs []string) []string {
 		e.say(fmt.Sprintf("%d of %d packages already satisfied by installed providers", len(pkgs)-len(keep), len(pkgs)))
 	}
 	return keep
+}
+
+func rpmProvides(cap string) bool {
+	return exec.Command("rpm", "-q", "--quiet", "--whatprovides", cap).Run() == nil
 }
 
 // stepBuild is the fromSource replacement for installing ryoku-desktop: the

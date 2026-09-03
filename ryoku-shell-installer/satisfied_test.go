@@ -20,3 +20,25 @@ func TestDropSatisfiedEmptyUnmetDropsAll(t *testing.T) {
 		t.Errorf("everything satisfied should drop all, got %v", got)
 	}
 }
+
+func TestDropSatisfiedFedora(t *testing.T) {
+	f := &facts{distro: fedoraLinux}
+	e := &engine{f: f, dry: false}
+	pkgs := []string{"git", "nonexistent-pkg-test-xyz"}
+	res := e.dropSatisfied(pkgs)
+	for _, p := range res {
+		if p == "git" {
+			t.Errorf("git is installed and should have been dropped on Fedora, got %v", res)
+		}
+	}
+	foundNonexistent := false
+	for _, p := range res {
+		if p == "nonexistent-pkg-test-xyz" {
+			foundNonexistent = true
+		}
+	}
+	if !foundNonexistent {
+		t.Errorf("uninstalled package should be kept, got %v", res)
+	}
+}
+
