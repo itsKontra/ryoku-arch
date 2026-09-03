@@ -729,7 +729,7 @@ func main() {
 		die("run as your normal user, not root; sudo is used where needed")
 	}
 	if detectHostDistro() == nil {
-		die("unsupported distribution: Ryoku installs on Arch-based and Debian-based systems")
+		die("unsupported distribution: Ryoku installs on Arch-based, Debian-based, and Fedora-based systems")
 	}
 	if out("uname", "-m") != "x86_64" {
 		die("Ryoku ships x86_64 builds only")

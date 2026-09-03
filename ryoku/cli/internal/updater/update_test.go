@@ -154,7 +154,7 @@ func TestPackagedStatusUpToDateOfflineEmptyRecent(t *testing.T) {
 // aborts the whole -Syu and blocks every user update; dropping the glob silently
 // reintroduces that outage, so pin it here.
 func TestSystemUpgradeAdoptsSeededRyokuFiles(t *testing.T) {
-	args := systemUpgradeArgs()
+	args := pacmanUpgradeArgs()
 	joined := strings.Join(args, " ")
 	for _, want := range []string{"pacman -Syu", "--noconfirm", "--overwrite"} {
 		if !strings.Contains(joined, want) {

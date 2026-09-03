@@ -531,6 +531,7 @@ func TestPlanSnapper(t *testing.T) {
 		confdExists:         true,
 		confdContents:       "SNAPPER_CONFIGS=\"root\"\n",
 		snapperInstalled:    true,
+		pacmanInstalled:     true,
 		snapPacInstalled:    true,
 		limineInstalled:     true,
 		limineSyncInstalled: true,

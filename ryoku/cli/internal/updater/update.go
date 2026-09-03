@@ -261,17 +261,33 @@ func runSystemUpgrade() error {
 // ryoku-wifi-powersave) once ryoku-desktop packages those paths; without it a
 // pacman file conflict aborts the whole -Syu and blocks every update until the
 // files are deleted by hand.
-func systemUpgradeArgs() []string {
+func pacmanUpgradeArgs() []string {
 	return []string{"sudo", "env", "SNAP_PAC_SKIP=y", "pacman", "-Syu", "--noconfirm",
 		"--overwrite", "/usr/bin/ryoku-*,/usr/share/polkit-1/rules.d/*ryoku*.rules"}
+}
+
+func systemUpgradeArgs() []string {
+	if sys.Has("dnf") && !sys.Has("pacman") {
+		return []string{"sudo", "dnf", "-y", "upgrade"}
+	}
+	if sys.Has("apt-get") && !sys.Has("pacman") {
+		return []string{"sudo", "apt-get", "-y", "dist-upgrade"}
+	}
+	return pacmanUpgradeArgs()
 }
 
 // channelSwitchArgs installs the [ryoku] channel's ryoku-desktop explicitly,
 // which pacman honours in either direction (a downgrade warns and proceeds),
 // pulling the umbrella's exact-version depends with it.
 func channelSwitchArgs() []string {
-	return []string{"sudo", "env", "SNAP_PAC_SKIP=y", "pacman", "-S", "--noconfirm",
-		"--overwrite", "/usr/bin/ryoku-*,/usr/share/polkit-1/rules.d/*ryoku*.rules", "ryoku-desktop"}
+	if sys.Has("pacman") {
+		return []string{"sudo", "env", "SNAP_PAC_SKIP=y", "pacman", "-S", "--noconfirm",
+			"--overwrite", "/usr/bin/ryoku-*,/usr/share/polkit-1/rules.d/*ryoku*.rules", "ryoku-desktop"}
+	}
+	if sys.Has("dnf") {
+		return []string{"sudo", "dnf", "-y", "install", "ryoku-desktop"}
+	}
+	return []string{"true"}
 }
 
 // runAURUpgrade runs `yay -Sua` under the same sleep inhibitor.
@@ -419,10 +435,19 @@ func prowlRefresh() {
 	}
 }
 
-// prowlPacmanOwned reports whether path belongs to an installed pacman package;
-// `pacman -Qo <path>` exits non-zero for a file no package owns (a dev install).
+// prowlPacmanOwned reports whether path belongs to an installed package;
+// returns non-zero for a file no package owns (a dev install).
 func prowlPacmanOwned(path string) bool {
-	return exec.Command("pacman", "-Qo", path).Run() == nil
+	if sys.Has("pacman") {
+		return exec.Command("pacman", "-Qo", path).Run() == nil
+	}
+	if sys.Has("rpm") {
+		return exec.Command("rpm", "-qf", path).Run() == nil
+	}
+	if sys.Has("dpkg-query") {
+		return exec.Command("dpkg-query", "-S", path).Run() == nil
+	}
+	return false
 }
 
 // prowlAction is what an update should do about prowl-agent.
@@ -451,6 +476,9 @@ func prowlDecide(onPath, pacmanOwned bool) prowlAction {
 // the user is running to heal the box. A lock owned by a live pacman is left
 // alone. Composed from sys primitives, same reason as snapHelpers below.
 func clearStalePacmanLock() {
+	if !sys.Has("pacman") {
+		return
+	}
 	const lock = "/var/lib/pacman/db.lck"
 	if !sys.Exists(lock) {
 		return
@@ -904,7 +932,10 @@ func packagedStatus(installed, latest string) statusReport {
 // Hub and CLI can show the exact commit a packaged box runs. no gNNNN token
 // (a hand-pinned 0.1.0-3, say) -> input comes back unchanged.
 func shortCommit(ver string) string {
-	for _, tok := range strings.FieldsFunc(ver, func(r rune) bool { return r == '.' || r == '-' }) {
+	for _, tok := range strings.FieldsFunc(ver, func(r rune) bool { return r == '.' || r == '-' || r == '^' || r == '_' }) {
+		if len(tok) >= 10 && strings.HasPrefix(tok, "git") && isHex(tok[3:]) {
+			return tok[3:]
+		}
 		if len(tok) >= 8 && tok[0] == 'g' && isHex(tok[1:]) {
 			return tok[1:]
 		}
@@ -924,15 +955,22 @@ func isHex(s string) bool {
 // latestAvailable: version of pkg in the [ryoku] repo, or "" when the repo
 // isn't synced/configured. `pacman -Sl ryoku` = "<repo> <pkg> <ver>".
 func latestAvailable(pkg string) string {
-	out, err := sys.RunOut("pacman", "-Sl", "ryoku")
-	if err != nil {
-		return ""
-	}
-	sc := bufio.NewScanner(strings.NewReader(out))
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) >= 3 && f[1] == pkg {
-			return f[2]
+	if sys.Has("pacman") {
+		out, err := sys.RunOut("pacman", "-Sl", "ryoku")
+		if err != nil {
+			return ""
+		}
+		sc := bufio.NewScanner(strings.NewReader(out))
+		for sc.Scan() {
+			f := strings.Fields(sc.Text())
+			if len(f) >= 3 && f[1] == pkg {
+				return f[2]
+			}
+		}
+	} else if sys.Has("dnf") {
+		out, err := sys.RunOut("dnf", "repoquery", "--qf", "%{VERSION}-%{RELEASE}", pkg)
+		if err == nil && strings.TrimSpace(out) != "" {
+			return strings.TrimSpace(out)
 		}
 	}
 	return ""
@@ -947,25 +985,38 @@ type updateItem struct {
 }
 
 // pendingUpdates: packages with a newer version available, via checkupdates
-// (pacman-contrib). syncs to a private db, so no root needed. empty when
-// the system is current or checkupdates is absent.
+// (pacman-contrib) or dnf check-update. Empty when the system is current.
 func pendingUpdates() []updateItem {
 	ups := []updateItem{}
-	if !sys.Has("checkupdates") {
+	if sys.Has("checkupdates") {
+		// cap the check: checkupdates syncs package dbs over the network and the
+		// update island polls this, so it MUST never hang status. generous so a
+		// slow sync still finishes.
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		out, _ := exec.CommandContext(ctx, "checkupdates").Output()
+		sc := bufio.NewScanner(strings.NewReader(string(out)))
+		for sc.Scan() {
+			f := strings.Fields(sc.Text())
+			if len(f) >= 4 && f[2] == "->" {
+				ups = append(ups, updateItem{Name: f[0], Old: f[1], New: f[3]})
+			}
+		}
 		return ups
 	}
-	// cap the check: checkupdates syncs package dbs over the network and the
-	// update island polls this, so it MUST never hang status. generous so a
-	// slow sync still finishes.
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-	out, _ := exec.CommandContext(ctx, "checkupdates").Output()
-	sc := bufio.NewScanner(strings.NewReader(string(out)))
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) >= 4 && f[2] == "->" {
-			ups = append(ups, updateItem{Name: f[0], Old: f[1], New: f[3]})
+	if sys.Has("dnf") {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		out, _ := exec.CommandContext(ctx, "dnf", "check-update").Output()
+		sc := bufio.NewScanner(strings.NewReader(string(out)))
+		for sc.Scan() {
+			f := strings.Fields(sc.Text())
+			if len(f) >= 3 && strings.Contains(f[0], ".") {
+				name := strings.Split(f[0], ".")[0]
+				ups = append(ups, updateItem{Name: name, New: f[1]})
+			}
 		}
+		return ups
 	}
 	return ups
 }

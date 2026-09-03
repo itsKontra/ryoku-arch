@@ -915,12 +915,17 @@ func stepDrivers(e *engine) error {
 	// skipped, and a repo publish can land between those steps and this one,
 	// pruning the files a stale db still points at (pacman's "failed
 	// retrieving file" abort that reads as a driver that would not install).
-	// clear resumed .part downloads and bring the system current first.
-	if err := e.sudoSh(`rm -f /var/cache/pacman/pkg/*.part`); err != nil {
-		e.say("warning: could not clear partial downloads (continuing)")
-	}
-	if err := e.sudo("pacman", "-Syu", "--noconfirm"); err != nil {
-		e.say("warning: could not refresh the package db before the driver install; a stale mirror may still fail a download (continuing)")
+	if e.d().id == "arch" {
+		if err := e.sudoSh(`rm -f /var/cache/pacman/pkg/*.part`); err != nil {
+			e.say("warning: could not clear partial downloads (continuing)")
+		}
+		if err := e.sudo("pacman", "-Syu", "--noconfirm"); err != nil {
+			e.say("warning: could not refresh the package db before the driver install; a stale mirror may still fail a download (continuing)")
+		}
+	} else if len(e.d().updateCmd) > 0 {
+		if err := e.sudo(e.d().updateCmd...); err != nil {
+			e.say("warning: could not refresh the package db before the driver install; a stale mirror may still fail a download (continuing)")
+		}
 	}
 	// a single vendor script failing must NOT sink the whole desktop install,
 	// matching installation/backend/lib/drivers.sh: the box still boots on the
@@ -1020,7 +1025,12 @@ func stepSession(e *engine) error {
 	if e.p.switchDM && hasDesktop(e.f.desktops, "GNOME") {
 		if err := e.sudoSh(`f=/etc/pam.d/sddm
 if [ -f "$f" ] && ! grep -q pam_gnome_keyring "$f"; then
-  printf '%s\n' 'auth        optional    pam_gnome_keyring.so' 'session     optional    pam_gnome_keyring.so    auto_start' >> "$f"
+  if grep -q "password-auth" "$f"; then
+    sed -i '/auth.*password-auth/a -auth       optional    pam_gnome_keyring.so' "$f"
+    sed -i '/session.*password-auth/a -session    optional    pam_gnome_keyring.so    auto_start' "$f"
+  else
+    printf '%s\n' 'auth        optional    pam_gnome_keyring.so' 'session     optional    pam_gnome_keyring.so    auto_start' >> "$f"
+  fi
 fi`); err != nil {
 			return err
 		}
@@ -1048,11 +1058,15 @@ fi`); err != nil {
 		}
 		// iwd backend pin, Ryoku network policy. takes effect at the next NM
 		// restart (reboot), so the live wifi connection is never dropped.
-		if err := e.sudoSh(`install -Dm644 /dev/stdin /etc/NetworkManager/conf.d/wifi-backend.conf <<'EOF'
+		// On Fedora (and systems without iwd), retain wpa_supplicant so Wi-Fi does not break.
+		if e.d().id != "fedora" && (e.d().id == "arch" || installed("iwd")) {
+			if err := e.sudoSh(`install -Dm644 /dev/stdin /etc/NetworkManager/conf.d/wifi-backend.conf <<'EOF'
 [device]
 wifi.backend=iwd
 EOF`); err != nil {
-			return err
+				return err
+			}
+			e.recordRestore("sudo rm -f /etc/NetworkManager/conf.d/wifi-backend.conf")
 		}
 	} else {
 		e.say("keeping your current network stack")
@@ -1338,12 +1352,22 @@ func stepVerify(e *engine) error {
 		check(has("matugen"), "matugen palette generator (colors follow the wallpaper)")
 	}
 	if !has("awww") {
-		e.say(gWarn + " awww missing (AUR): static wallpapers will not set until it installs (ryoku doctor retries it)")
+		if e.d().id == "arch" {
+			e.say(gWarn + " awww missing (AUR): static wallpapers will not set until it installs (ryoku doctor retries it)")
+		} else {
+			e.say(gWarn + " awww missing: static wallpapers will not set until it installs (ryoku doctor retries it)")
+		}
 	}
 	if e.p.devtools {
 		check(has("go"), "go toolchain on PATH (ryoku recovery rebuilds from source)")
 	} else {
-		e.say(gWarn + " developer toolchain skipped: ryoku recovery needs go; install with: sudo pacman -S go")
+		hint := "sudo pacman -S go"
+		if e.d().id == "fedora" {
+			hint = "sudo dnf install golang"
+		} else if e.d().id == "debian" {
+			hint = "sudo apt-get install golang"
+		}
+		e.say(gWarn + " developer toolchain skipped: ryoku recovery needs go; install with: " + hint)
 	}
 	if e.p.omarchy {
 		conf2, _ := os.ReadFile("/etc/pacman.conf")

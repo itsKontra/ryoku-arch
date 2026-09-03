@@ -368,6 +368,9 @@ func reconcileNvidiaGuardHook(checkOnly bool) recResult {
 	if !nvidiaDriverActive() {
 		return okRes("no proprietary NVIDIA driver in use")
 	}
+	if !sys.Has("pacman") {
+		return okRes("pacman hooks not used on this system")
+	}
 	if nvidiaGuardHookOK(readFileSafe(nvidiaGuardHookPath)) {
 		return okRes("NVIDIA update guard hook in place")
 	}

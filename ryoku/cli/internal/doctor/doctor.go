@@ -495,6 +495,7 @@ type snapperState struct {
 	confdExists         bool
 	confdContents       string
 	snapperInstalled    bool
+	pacmanInstalled     bool
 	snapPacInstalled    bool
 	limineInstalled     bool
 	limineSyncInstalled bool
@@ -534,7 +535,7 @@ func planSnapper(s snapperState) (snapperOutcome, []string) {
 	if !s.snapperInstalled {
 		problems = append(problems, "snapper is not installed; the root config exists but cannot be used (sudo pacman -S snapper)")
 	}
-	if !s.snapPacInstalled {
+	if s.pacmanInstalled && !s.snapPacInstalled {
 		problems = append(problems, "snap-pac is not installed, so pacman transactions are not auto-snapshotted (sudo pacman -S snap-pac)")
 	}
 	// only meaningful under Limine; a GRUB box (converted CachyOS and the
@@ -561,6 +562,7 @@ func gatherSnapperState() snapperState {
 		configExists:        sys.Exists("/etc/snapper/configs/root"),
 		optedOut:            sys.Exists("/etc/ryoku/snapshots-disabled"),
 		snapperInstalled:    sys.Has("snapper"),
+		pacmanInstalled:     sys.Has("pacman"),
 		snapPacInstalled:    sys.PkgInstalled("snap-pac"),
 		limineInstalled:     sys.PkgInstalled("limine"),
 		limineSyncInstalled: sys.PkgInstalled("limine-snapper-sync"),
@@ -588,8 +590,12 @@ func reconcileSnapper(checkOnly bool) recResult {
 	case snapperWarnNotBtrfs:
 		return warnRes("root filesystem is not btrfs; snapshot and rollback are unavailable on this machine")
 	case snapperWarnMissingPkgs:
+		fix := "sudo pacman -S snapper snap-pac, then ryoku doctor"
+		if !sys.Has("pacman") {
+			fix = "install snapper, then ryoku doctor"
+		}
 		return warnRes("root is btrfs but snapper is not installed; snapshots and rollback are off").
-			withFix("sudo pacman -S snapper snap-pac, then ryoku doctor")
+			withFix(fix)
 	case snapperOptedOut:
 		return okRes("snapshots were declined at install (/etc/ryoku/snapshots-disabled); delete the marker and run `ryoku doctor` to enable them")
 	case snapperCreate:
@@ -927,6 +933,9 @@ const ryokuRepoStanza = "\n[ryoku]\nSigLevel = Required\nServer = " + sys.RepoBa
 func reconcileRyokuChannel(checkOnly bool) recResult {
 	if !sys.PkgInstalled("ryoku-desktop") {
 		return okRes("not a packaged install (desktop runs from a checkout)")
+	}
+	if !sys.Has("pacman") {
+		return okRes("pacman not used on this system")
 	}
 	conf, err := os.ReadFile("/etc/pacman.conf")
 	if err != nil {
@@ -3379,6 +3388,18 @@ func trimTrailing(b []byte) []byte { return bytes.TrimRight(b, " \t\r\n") }
 // packaged default. genuine merges are reported for `sudo pacdiff`. idempotent:
 // once the safe ones are gone a re-run only sees (and reports) the conflicts.
 func reconcilePacnew(checkOnly bool) recResult {
+	if !sys.Has("pacman") {
+		if sys.Has("rpm") {
+			out, _ := sys.RunOut("find", "/etc", "-name", "*.rpmnew", "-o", "-name", "*.rpmsave")
+			files := nonEmptyLines(out)
+			if len(files) == 0 {
+				return okRes("no pending config updates (.rpmnew/.rpmsave)")
+			}
+			return noteRes("%d pending config update(s) (.rpmnew/.rpmsave)", len(files)).
+				withFix("review differences and merge manually or with rpmconf")
+		}
+		return okRes("no pending config updates")
+	}
 	out, _ := sys.RunOut("find", "/etc", "-name", "*.pacnew")
 	files := nonEmptyLines(out)
 	if len(files) == 0 {
@@ -3423,13 +3444,25 @@ func reconcilePacnew(checkOnly bool) recResult {
 // ---- reconciler: orphaned packages -------------------------------------------
 
 func reconcileOrphans(_ bool) recResult {
-	out, err := sys.RunOut("pacman", "-Qtdq")
-	orphans := nonEmptyLines(out)
-	if err != nil || len(orphans) == 0 {
-		return okRes("no orphaned packages")
+	if sys.Has("pacman") {
+		out, err := sys.RunOut("pacman", "-Qtdq")
+		orphans := nonEmptyLines(out)
+		if err != nil || len(orphans) == 0 {
+			return okRes("no orphaned packages")
+		}
+		return noteRes("%d orphaned package(s)", len(orphans)).
+			withFix("review `pacman -Qtd`, then `sudo pacman -Rns $(pacman -Qtdq)` if unneeded")
 	}
-	return noteRes("%d orphaned package(s)", len(orphans)).
-		withFix("review `pacman -Qtd`, then `sudo pacman -Rns $(pacman -Qtdq)` if unneeded")
+	if sys.Has("dnf") {
+		out, err := sys.RunOut("dnf", "repoquery", "--unneeded", "-q")
+		orphans := nonEmptyLines(out)
+		if err != nil || len(orphans) == 0 {
+			return okRes("no orphaned packages")
+		}
+		return noteRes("%d orphaned package(s)", len(orphans)).
+			withFix("review `dnf repoquery --unneeded`, remove with `sudo dnf autoremove` if unneeded")
+	}
+	return okRes("no orphaned packages")
 }
 
 // ---- swap helpers ------------------------------------------------------------

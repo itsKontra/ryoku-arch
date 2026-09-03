@@ -262,12 +262,12 @@ func detect() *facts {
 		}
 	}
 
-	if f.pacman {
-		for _, p := range rivalShellPkgs {
-			if pacmanHas(p) {
-				f.rivalPkgs = append(f.rivalPkgs, p)
-			}
+	for _, p := range rivalShellPkgs {
+		if installed(p) {
+			f.rivalPkgs = append(f.rivalPkgs, p)
 		}
+	}
+	if f.pacman {
 		// end-4's meta packages pull the whole illogical-impulse daemon zoo;
 		// plain -R removal, same reasoning as the noctalia metas.
 		for _, p := range strings.Fields(out("pacman", "-Qq")) {
@@ -275,15 +275,20 @@ func detect() *facts {
 				f.rivalPkgs = append(f.rivalPkgs, p)
 			}
 		}
-		for _, p := range conflictBlockerPkgs {
-			if pacmanHas(p) {
-				f.blockerPkgs = append(f.blockerPkgs, p)
-			}
-		}
-		f.ryokuOnBox = pacmanHas("ryoku-desktop")
-		f.niriFound = pacmanHas("niri")
-		f.desktops = detectDesktops()
 	}
+	for _, p := range conflictBlockerPkgs {
+		if installed(p) {
+			f.blockerPkgs = append(f.blockerPkgs, p)
+		}
+	}
+	f.ryokuOnBox = installed("ryoku-desktop")
+	if !f.ryokuOnBox && f.homeDir != "" {
+		if _, err := os.Stat(filepath.Join(f.homeDir, ".local", "bin", "ryoku-shell")); err == nil {
+			f.ryokuOnBox = true
+		}
+	}
+	f.niriFound = installed("niri") || has("niri")
+	f.desktops = detectDesktops()
 	if _, err := os.Stat("/etc/sddm.conf.d/kde_settings.conf"); err == nil {
 		f.kdeSddmConf = true
 	}
@@ -450,13 +455,34 @@ func (f *facts) detectUcode() {
 		return
 	}
 	s := string(b)
+	distroID := ""
+	if f.distro != nil {
+		distroID = f.distro.id
+	} else if activeDistro != nil {
+		distroID = activeDistro.id
+	}
+
 	switch {
 	case strings.Contains(s, "AuthenticAMD"):
-		f.ucodePkg = "amd-ucode"
+		switch distroID {
+		case "fedora":
+			f.ucodePkg = "" // included in linux-firmware
+		case "debian":
+			f.ucodePkg = "amd64-microcode"
+		default:
+			f.ucodePkg = "amd-ucode"
+		}
 	case strings.Contains(s, "GenuineIntel"):
-		f.ucodePkg = "intel-ucode"
+		switch distroID {
+		case "fedora":
+			f.ucodePkg = "microcode_ctl"
+		case "debian":
+			f.ucodePkg = "intel-microcode"
+		default:
+			f.ucodePkg = "intel-ucode"
+		}
 	}
-	if f.ucodePkg != "" && pacmanHas(f.ucodePkg) {
+	if f.ucodePkg != "" && installed(f.ucodePkg) {
 		f.ucodePkg = "" // already there, nothing to add
 	}
 }

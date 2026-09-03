@@ -162,10 +162,10 @@ say "rebuilding and redeploying the desktop (overwrites Ryoku configs)"
 # packaged box goes back on the pacman channel; the home-deployed desktop
 # carries it until the next `ryoku update`, whose doctor then clears the
 # leftover home artifacts once the packages are current.
-if pacman -Q ryoku-desktop >/dev/null 2>&1; then
+if (command -v pacman >/dev/null 2>&1 && pacman -Q ryoku-desktop >/dev/null 2>&1) || (command -v rpm >/dev/null 2>&1 && rpm -q ryoku-desktop >/dev/null 2>&1); then
   state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/ryoku"
   rm -f "$state_dir/repo" "$state_dir/deployed"
-  say "packaged install detected: staying on the pacman update channel"
+  say "packaged install detected: staying on the package update channel"
 fi
 
 # Consolidate: drop the retired dev-switch switcher and any stray recovery/ISO
