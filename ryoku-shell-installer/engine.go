@@ -1150,15 +1150,17 @@ EOF`); err != nil {
 }
 
 func stepConfigs(e *engine) error {
-	ryoku := e.ryokuBin()
-	if !e.dry && ryoku == "" {
-		return fmt.Errorf("the ryoku CLI is missing; the package step did not finish")
-	}
-	if ryoku == "" {
-		ryoku = "ryoku"
-	}
-	if err := e.cmd("", nil, ryoku, "materialize"); err != nil {
-		return err
+	if !e.d().fromSource {
+		ryoku := e.ryokuBin()
+		if !e.dry && ryoku == "" {
+			return fmt.Errorf("the ryoku CLI is missing; the package step did not finish")
+		}
+		if ryoku == "" {
+			ryoku = "ryoku"
+		}
+		if err := e.cmd("", nil, ryoku, "materialize"); err != nil {
+			return err
+		}
 	}
 
 	// salvaged monitor pins go in before the stub pass, real pins beat a
