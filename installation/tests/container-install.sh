@@ -44,8 +44,13 @@ log "base: $BASE"
 #    landed in the other copy for the controller packages, this gate went red on
 #    the first main sync, and the publish job was skipped as a result.
 pacman -Sy --noconfirm --needed "${keyring[@]}"
-mapfile -t toolchain < <(grep -vE '^[[:space:]]*(#|$)' "$REPO/release/repo/build-toolchain.packages")
-pacman -Syu --noconfirm --needed "${toolchain[@]}"
+if [[ ${RYOKU_PREBUILT_REPO:-0} == 1 ]]; then
+  # nothing to build: only what the assertions below call
+  pacman -Syu --noconfirm --needed jq gnupg libarchive
+else
+  mapfile -t toolchain < <(grep -vE '^[[:space:]]*(#|$)' "$REPO/release/repo/build-toolchain.packages")
+  pacman -Syu --noconfirm --needed "${toolchain[@]}"
+fi
 
 # pacman 7 runs install scriptlets in a sandbox that cannot open a network
 # namespace inside a container, so post-install hooks (fc-cache, icon cache, ...)
@@ -53,10 +58,27 @@ pacman -Syu --noconfirm --needed "${toolchain[@]}"
 grep -q '^DisableSandboxNetwork' /etc/pacman.conf \
   || sed -i '/^\[options\]/a DisableSandboxNetwork' /etc/pacman.conf
 
-# 2. build the [ryoku] packages into a local repo with a throwaway key (consumed
-#    with SigLevel=Never below). shared with the VM install test.
-log "building [ryoku] packages from the checkout -> $OUT"
-RYOKU_REPO_NAME=ryoku-local "$REPO/installation/tests/build-ryoku-repo.sh"
+# 2. the [ryoku] packages. RYOKU_PREBUILT_REPO=1 means publish-repo.yml already
+#    built and signed them with the release key and dropped the repo at $OUT
+#    (the bytes it will upload), so install those and verify their signatures
+#    the way a user's pacman does. otherwise build them here into a local repo
+#    with a throwaway key, consumed with SigLevel=Never below (shared with the
+#    VM install test).
+if [[ ${RYOKU_PREBUILT_REPO:-0} == 1 ]]; then
+  [[ -f "$OUT/ryoku.db" ]] || die "RYOKU_PREBUILT_REPO=1 but no repo at $OUT"
+  log "using the prebuilt signed repo at $OUT ($(find "$OUT" -name '*.pkg.tar.zst' | wc -l) packages)"
+  repo_name=ryoku
+  siglevel=Required
+  pacman-key --init >/dev/null 2>&1 || true
+  pacman-key --add "$REPO/release/packages/ryoku-keyring/ryoku.gpg"
+  keyid=$(gpg --homedir /etc/pacman.d/gnupg --with-colons --show-keys "$REPO/release/packages/ryoku-keyring/ryoku.gpg" 2>/dev/null | awk -F: '/^fpr/{print $10; exit}')
+  pacman-key --lsign-key "$keyid" >/dev/null
+else
+  log "building [ryoku] packages from the checkout -> $OUT"
+  RYOKU_REPO_NAME=ryoku-local "$REPO/installation/tests/build-ryoku-repo.sh"
+  repo_name=ryoku-local
+  siglevel=Never
+fi
 
 # Regression guard for the CachyOS oh-my-zsh-git swap: cachyos-zsh-config depends
 # on oh-my-zsh-git, so ryoku-oh-my-zsh must claim it in provides + conflict +
@@ -71,19 +93,20 @@ for field in provides conflict replaces; do
 done
 log "oh-my-zsh-git swap metadata present on ryoku-oh-my-zsh"
 
-# 3. register the local repo and install the desktop. SigLevel=Never relaxes
-#    verification for THIS repo only (it is signed with the throwaway key above,
-#    which pacman does not trust); official repos keep their SigLevel. an
-#    unresolved depend must fail loudly here -- that is the whole point.
+# 3. register the repo and install the desktop. the prebuilt repo is verified
+#    against the release key (SigLevel=Required, as on a user's box); a local
+#    throwaway-key build relaxes verification for THIS repo only. official
+#    repos keep their SigLevel. an unresolved depend must fail loudly here --
+#    that is the whole point.
 cat >>/etc/pacman.conf <<EOF
 
-[ryoku-local]
-SigLevel = Never
+[$repo_name]
+SigLevel = $siglevel
 Server = file://$OUT
 EOF
 
 pacman -Sy --noconfirm
-log "installing ryoku-desktop from [ryoku-local]"
+log "installing ryoku-desktop from [$repo_name]"
 pacman -S --noconfirm ryoku-desktop
 
 [[ -d /usr/share/ryoku/config ]] || die "ryoku-desktop did not lay /usr/share/ryoku/config"
@@ -177,20 +200,27 @@ log "linting the materialized QML for load failures"
 #    release) needs the published channels and runs in the VM install test.
 log "checking release naming and channel handling"
 [[ -f /etc/ryoku-release ]] || die "ryoku-desktop did not ship /etc/ryoku-release"
-grep -qE '^RELEASE=local-[0-9]' /etc/ryoku-release || die "unexpected /etc/ryoku-release: $(cat /etc/ryoku-release)"
-grep -qE '^CHANNEL=local$' /etc/ryoku-release || die "hand build must be marked CHANNEL=local"
+# a prebuilt repo carries the release and channel the publish named; a hand
+# build names itself local-<pkgver> on channel local.
+expect_release=$(jq -r '.release // empty' "$OUT/release.json" 2>/dev/null || true)
+expect_channel=$(jq -r '.channel // empty' "$OUT/release.json" 2>/dev/null || true)
+: "${expect_release:=local-}" "${expect_channel:=local}"
+grep -qF "RELEASE=$expect_release" /etc/ryoku-release || die "unexpected /etc/ryoku-release (want RELEASE=$expect_release*): $(cat /etc/ryoku-release)"
+grep -qx "CHANNEL=$expect_channel" /etc/ryoku-release || die "expected CHANNEL=$expect_channel in /etc/ryoku-release"
 name=$(tr -d '[:space:]' < "$REPO/CODENAME")
 grep -qx "NAME=$name" /etc/ryoku-release || die "ryoku-desktop did not carry the line's name ($name) into /etc/ryoku-release"
 ver=$(runuser -u "$TESTUSER" -- env "HOME=/home/$TESTUSER" ryoku version)
-[[ $ver == local-* ]] || die "ryoku version should print the release marker, got: $ver"
+[[ $ver == "$expect_release"* ]] || die "ryoku version should print the release marker ($expect_release*), got: $ver"
 pretty=$(runuser -u "$TESTUSER" -- env "HOME=/home/$TESTUSER" ryoku version --pretty)
-[[ $pretty == "$name local-"* ]] || die "ryoku version --pretty should lead with the name, got: $pretty"
-cat >>/etc/pacman.conf <<EOF
+[[ $pretty == "$name $expect_release"* ]] || die "ryoku version --pretty should lead with the name, got: $pretty"
+if [[ $repo_name != ryoku ]]; then
+  cat >>/etc/pacman.conf <<EOF
 
 [ryoku]
 SigLevel = Never
 Server = file://$OUT
 EOF
+fi
 if runuser -u "$TESTUSER" -- env "HOME=/home/$TESTUSER" ryoku track testing 2>/tmp/track.err; then
   die "ryoku track must refuse a [ryoku] repo Ryoku does not publish"
 fi

@@ -86,6 +86,14 @@ func Update(args []string) error {
 			"(an update that runs out of disk can leave the system half-upgraded)", free)
 	}
 
+	// Cache the sudo credential once, on the terminal, before any step needs it.
+	// The pre-snapshot, pacman, yay and the post snapshot all escalate, several
+	// through pipes or RunOut where a prompt cannot be seen; one prompt up front is
+	// what users were doing by hand with `sudo -v && ryoku update`.
+	primeSudo()
+	stopKeepalive := sudoKeepalive()
+	defer stopKeepalive()
+
 	checkout := sys.ResolveRepo() != ""
 	if checkout {
 		progress.begin(gitSteps)
@@ -128,7 +136,7 @@ func Update(args []string) error {
 		os.Setenv("RYOKU_UPDATE_FROM", from)
 	}
 	clearStalePacmanLock()
-	if err := runSystemUpgrade(); err != nil {
+	if err := runSystemUpgrade(channelSwitch); err != nil {
 		// only advertise `ryoku rollback` when the pre snapshot it needs exists;
 		// snapperPre is best-effort and returns "" when it was skipped.
 		hint := "no pre-update snapshot exists (snapper was unavailable), so `ryoku rollback` cannot revert this; recover with pacman directly"
@@ -231,6 +239,46 @@ func humanBytes(n uint64) string {
 	}
 }
 
+// primeSudo caches the sudo credential once, up front, on the real terminal, so
+// every escalation the rest of the update makes finds it instead of prompting.
+// Several of those prompts cannot be seen or answered: the pre-snapshot runs
+// through RunOut (no tty), pacman's runs through the curated output pipe, and yay
+// and flatpak escalate on their own -- an unseen prompt there is exactly why users
+// learned to run `sudo -v` by hand first. No tty -> skip (a GUI or timer run has
+// no terminal to prompt on); a NOPASSWD box sees nothing. Best-effort.
+func primeSudo() {
+	if !sys.StdinIsTTY() {
+		return
+	}
+	_ = sys.Run("sudo", "-v")
+}
+
+// sudoKeepalive refreshes the cached credential every minute so a long
+// transaction (a large AUR compile) cannot let it lapse mid-run and re-prompt
+// where the prompt is invisible. `-n` never prompts, so once the credential is
+// gone this is a silent no-op, and RunOut keeps its "a password is required" off
+// the terminal. The returned stop func ends the refresher; the stage1->stage2
+// exec replaces the process, so a stop it never reaches leaks nothing.
+func sudoKeepalive() func() {
+	if !sys.StdinIsTTY() {
+		return func() {}
+	}
+	stop := make(chan struct{})
+	go func() {
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				_, _ = sys.RunOut("sudo", "-n", "-v")
+			}
+		}
+	}()
+	return func() { close(stop) }
+}
+
 // snapshotDesc labels the pre-update snapshot (and its Limine boot-menu entry)
 // with the version being updated from, so a user restoring after a bad update can
 // tell the snapshots apart instead of a row of identical "ryoku-update".
@@ -252,42 +300,62 @@ func snapshotDesc() string {
 // snapshot: `ryoku update` already brackets the whole run with one snapper
 // pre/post pair, so snap-pac's extra pair is pure noise in the list and the boot
 // menu. sudo resets the environment, so SNAP_PAC_SKIP rides inside via env(1).
-func runSystemUpgrade() error {
-	return runInhibited("System", "System package upgrade", systemUpgradeArgs())
+func runSystemUpgrade(forceRefresh bool) error {
+	return runInhibited("System", "System package upgrade", systemUpgradeArgs(forceRefresh))
 }
 
-// systemUpgradeArgs is the packaged-box upgrade command. --overwrite adopts the
-// privileged helpers + polkit rules deploy.sh seeds unowned (ryoku-dns,
-// ryoku-wifi-powersave) once ryoku-desktop packages those paths; without it a
-// pacman file conflict aborts the whole -Syu and blocks every update until the
-// files are deleted by hand.
-func pacmanUpgradeArgs() []string {
-	return []string{"sudo", "env", "SNAP_PAC_SKIP=y", "pacman", "-Syu", "--noconfirm",
-		"--overwrite", "/usr/bin/ryoku-*,/usr/share/polkit-1/rules.d/*ryoku*.rules"}
+// ryokuOverwriteGlob names the ryoku-desktop-owned paths that the ISO installer
+// and ryoku/shell/deploy.sh seed unowned before the package began owning them:
+// the privileged helpers (ryoku-dns, ryoku-wifi-powersave), their polkit rules,
+// and the Plymouth splash theme (installer bootloader.sh + deploy.sh). Every
+// ryoku-desktop (re)install --overwrites these, or the first upgrade that starts
+// owning a seeded path aborts the whole transaction ("exists in filesystem") and
+// blocks every update until the files are removed by hand. Keep in sync with the
+// doctor's ryokuSystemGlobs, which clears the same paths on an already-wedged box.
+const ryokuOverwriteGlob = "/usr/bin/ryoku-*," +
+	"/usr/share/polkit-1/rules.d/*ryoku*.rules," +
+	"/usr/share/plymouth/themes/ryoku/*"
+
+// pacmanUpgradeArgs is the pacman package manager upgrade command.
+func pacmanUpgradeArgs(forceRefresh bool) []string {
+	op := "-Syu"
+	if forceRefresh {
+		op = "-Syyu"
+	}
+	return []string{"sudo", "env", "SNAP_PAC_SKIP=y", "pacman", op, "--noconfirm",
+		"--overwrite", ryokuOverwriteGlob}
 }
 
-func systemUpgradeArgs() []string {
+// systemUpgradeArgs is the packaged-box upgrade command. After a channel move
+// the refresh is forced (-Syy): pacman skips a db that is not newer than its
+// cached copy, and a frozen release directory is older than the channel the
+// box just left, so a plain -Sy kept the old db against the new signature and
+// failed with "invalid or corrupted database (PGP signature)".
+func systemUpgradeArgs(forceRefresh bool) []string {
 	if sys.Has("dnf") && !sys.Has("pacman") {
+		if forceRefresh {
+			return []string{"sudo", "dnf", "-y", "--refresh", "upgrade"}
+		}
 		return []string{"sudo", "dnf", "-y", "upgrade"}
 	}
 	if sys.Has("apt-get") && !sys.Has("pacman") {
 		return []string{"sudo", "apt-get", "-y", "dist-upgrade"}
 	}
-	return pacmanUpgradeArgs()
+	return pacmanUpgradeArgs(forceRefresh)
 }
 
 // channelSwitchArgs installs the [ryoku] channel's ryoku-desktop explicitly,
 // which pacman honours in either direction (a downgrade warns and proceeds),
 // pulling the umbrella's exact-version depends with it.
 func channelSwitchArgs() []string {
-	if sys.Has("pacman") {
-		return []string{"sudo", "env", "SNAP_PAC_SKIP=y", "pacman", "-S", "--noconfirm",
-			"--overwrite", "/usr/bin/ryoku-*,/usr/share/polkit-1/rules.d/*ryoku*.rules", "ryoku-desktop"}
-	}
-	if sys.Has("dnf") {
+	if sys.Has("dnf") && !sys.Has("pacman") {
 		return []string{"sudo", "dnf", "-y", "install", "ryoku-desktop"}
 	}
-	return []string{"true"}
+	if sys.Has("apt-get") && !sys.Has("pacman") {
+		return []string{"true"}
+	}
+	return []string{"sudo", "env", "SNAP_PAC_SKIP=y", "pacman", "-S", "--noconfirm",
+		"--overwrite", ryokuOverwriteGlob, "ryoku-desktop"}
 }
 
 // runAURUpgrade runs `yay -Sua` under the same sleep inhibitor.
@@ -348,6 +416,12 @@ func finishRun() error {
 // so it re-begins the packaged step list and marks the pre-handoff steps done
 // to keep one continuous progress bar.
 func updateStage2(pre string) error {
+	// A fresh process after the exec handoff: re-cache the credential (a no-op
+	// inside the timeout) so materialize, the post snapshot and doctor never
+	// prompt where it cannot be seen.
+	primeSudo()
+	stopKeepalive := sudoKeepalive()
+	defer stopKeepalive()
 	progress.begin(pkgSteps)
 	progress.setSnapshot(pre)
 	progress.markDone("snapshot", "packages")
@@ -597,12 +671,13 @@ func runFreshDoctor() {
 	_ = sys.Run(pkgBin("ryoku"), "doctor")
 }
 
-// Rollback puts a packaged box back on an earlier release, or guides a
-// snapshot restore. `--to <tag>` pins the [ryoku] repo at that frozen release
-// directory and runs the update, so the Ryoku set moves back in one pacman
-// transaction while Arch stays current; `ryoku track stable` follows releases
-// again afterwards. Without --to it lists the releases the ledger knows and
-// the snapshots on disk.
+// Rollback is the way back, on two levels. `--to <tag>` moves the Ryoku set
+// (its packages and config) to a published release without a reboot: the
+// [ryoku] repo is pinned at that frozen release directory and the update runs,
+// so the set moves in one pacman transaction while Arch stays current;
+// `ryoku track stable` follows releases again afterwards. A snapshot id guides
+// a whole-system restore from the boot menu. With no argument it shows both:
+// the releases the ledger knows and the snapshots on disk.
 //
 // The snapshot path is a boot-menu restore, not a live one: Ryoku pins the
 // root subvolume on the kernel cmdline and in fstab (rootflags=subvol=@), and
@@ -623,43 +698,79 @@ func Rollback(args []string) error {
 		if !sys.IsReleaseTag(to) {
 			return fmt.Errorf("--to takes a release tag (see `ryoku rollback` for the list), got %q", to)
 		}
-		fmt.Printf("==> Rolling the Ryoku set back to release %s\n", to)
+		fmt.Printf("==> Moving the Ryoku set to release %s\n", to)
 		return Track(to)
 	}
-	if sys.ResolveRepo() == "" {
-		rel := sys.ReadRelease()
-		if rel.Release != "" {
-			fmt.Printf("running:   %s%s (%s)\n", withSpace(rel.Name), rel.Release, orDash(sys.PackagedChannel()))
+	if len(args) > 0 {
+		return restoreGuide(args[0])
+	}
+
+	fmt.Println("Two ways back:")
+	fmt.Println("  the Ryoku set (its packages and config) to a published release, live;")
+	fmt.Println("  the whole system (Arch included) to a snapshot, from the boot menu.")
+	fmt.Println()
+	printReleases()
+	fmt.Println()
+	fmt.Println("SNAPSHOTS  the whole system, on this disk")
+	if err := Snapshots(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// printReleases is the RELEASES block of `ryoku rollback`: what a packaged box
+// runs, what it can move to, and how; a checkout box is told releases do not
+// apply to it instead of being shown nothing.
+func printReleases() {
+	if sys.ResolveRepo() != "" {
+		fmt.Println("RELEASES  not on this box")
+		fmt.Printf("  this box runs a checkout of %s; releases apply to packaged installs.\n", ryokuChannel())
+		fmt.Println("  ryoku track main|unstable-dev   picks the branch `ryoku update` follows")
+		return
+	}
+	ch := sys.PackagedChannel()
+	rel := sys.ReadRelease()
+	fmt.Printf("RELEASES  repo.ryoku.dev, channel: %s\n", orDash(ch))
+	if rel.Release != "" {
+		fmt.Printf("  running    %s%s\n", withSpace(rel.Name), rel.Release)
+	}
+	l := ledger()
+	if len(l.Releases) == 0 {
+		fmt.Println("  no published releases yet")
+		return
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, 3, ' ', 0)
+	for _, r := range l.Releases {
+		mark := " "
+		if r.Tag == rel.Release {
+			mark = "*"
 		}
-		if l := ledger(); len(l.Releases) > 0 {
-			fmt.Println("releases (newest first); `ryoku rollback --to <tag>` pins the box to one:")
-			for _, r := range l.Releases {
-				mark := "  "
-				if r.Tag == rel.Release {
-					mark = "* "
-				}
-				fmt.Printf("  %s%-24s %s  %-10s %s\n", mark, r.Tag, r.Date[:min(10, len(r.Date))], r.Name, r.Version)
+		fmt.Fprintf(w, "  %s %s\t%s\t%s\n", mark, r.Tag, r.Date[:min(10, len(r.Date))], r.Name)
+	}
+	w.Flush()
+	fmt.Println("  ryoku rollback --to <tag>   moves the Ryoku set to that release, no reboot")
+	fmt.Println("  ryoku track stable          follows new releases again afterwards")
+}
+
+// restoreGuide is `ryoku rollback <id>`: the boot-menu restore, step by step,
+// naming the snapshot when snapper can describe it.
+func restoreGuide(id string) error {
+	label := id
+	if rows, err := snapshotRows(); err == nil {
+		for _, r := range rows {
+			if r.number == id {
+				label = fmt.Sprintf("%s  (%s, %s %s)", id, shortSnapDate(r.date), r.kind, orDash(r.description))
+				break
 			}
-			fmt.Println()
 		}
 	}
-	id := "<id>"
-	if len(args) == 0 {
-		fmt.Println("Snapshots (pick an id, or choose one under Snapshots in the Limine boot menu):")
-		if err := Snapshots(); err != nil {
-			return err
-		}
-		fmt.Println()
-	} else {
-		id = args[0]
-		fmt.Printf("==> Restoring snapshot %s\n\n", id)
-	}
+	fmt.Printf("Restoring snapshot %s\n\n", label)
 	fmt.Println("Ryoku boots the @ subvolume directly, so a live `snapper rollback` cannot")
-	fmt.Println("restore the system; the restore runs from the boot menu instead:")
-	fmt.Printf("  1. Reboot, and in the Limine menu open Snapshots -> snapshot %s.\n", id)
-	fmt.Println("  2. Boot it, then run `sudo limine-snapper-restore` in a terminal (it offers")
-	fmt.Println("     to restore the snapshot you are booted into, matching kernels included).")
-	fmt.Println("  3. Reboot back into the restored system.")
+	fmt.Println("restore the system; the restore runs from the boot menu:")
+	fmt.Printf("  1. Reboot, and in the Limine menu open Snapshots -> %s.\n", id)
+	fmt.Println("  2. In that session run:  sudo limine-snapper-restore")
+	fmt.Println("     (it restores the snapshot you booted, matching kernels included)")
+	fmt.Println("  3. Reboot into the restored system.")
 	if !sys.PkgInstalled("limine-snapper-sync") {
 		fmt.Println()
 		fmt.Println("limine-snapper-sync is not installed, so snapshots are missing from the boot")
@@ -669,26 +780,35 @@ func Rollback(args []string) error {
 	return nil
 }
 
+// Snapshots prints the snapshot table (the SNAPSHOTS block of `ryoku rollback`).
 func Snapshots() error {
 	if !sys.Has("snapper") {
 		return fmt.Errorf("snapper is not installed")
 	}
 	if !sys.Exists("/etc/snapper/configs/root") {
-		fmt.Println("Snapshots are not configured on this machine.")
-		fmt.Println("Enable them with: ryoku doctor")
+		fmt.Println("  not configured on this machine; `ryoku doctor` enables them")
 		return nil
 	}
-	// Prime sudo on the terminal (it may prompt), then capture without a tty so
-	// the parse below gets clean CSV instead of a password prompt in the output.
-	_ = sys.Run("sudo", "-v")
-	out, err := sys.RunOut("sudo", "-n", "snapper", "-c", snapperConfig, "--csvout",
-		"list", "--columns", "number,type,date,description,cleanup")
+	rows, err := snapshotRows()
 	if err != nil {
 		// fall back to snapper's own table rather than showing nothing.
 		return sys.Sudo("snapper", "-c", snapperConfig, "list")
 	}
-	printSnapshotTable(parseSnapshotRows(out))
+	printSnapshotTable(rows)
 	return nil
+}
+
+// snapshotRows lists the snapshots through snapper (root), parsed. sudo is
+// primed on the terminal first (it may prompt), then the list is captured
+// without a tty so the parse gets clean CSV instead of a password prompt.
+func snapshotRows() ([]snapshotRow, error) {
+	primeSudo()
+	out, err := sys.RunOut("sudo", "-n", "snapper", "-c", snapperConfig, "--csvout",
+		"list", "--columns", "number,type,date,description,cleanup")
+	if err != nil {
+		return nil, err
+	}
+	return parseSnapshotRows(out), nil
 }
 
 // snapshotRow is one parsed line of `snapper --csvout list`.
@@ -728,30 +848,38 @@ func parseSnapshotRows(out string) []snapshotRow {
 	return rows
 }
 
-// printSnapshotTable shows the snapshots plus a count and boot-menu footer.
+// printSnapshotTable shows the snapshots (newest last, the way snapper counts)
+// plus a count, free space, and whether the boot menu lists them.
 func printSnapshotTable(rows []snapshotRow) {
 	if len(rows) == 0 {
-		fmt.Println("No snapshots yet. `ryoku update` takes one before each update.")
+		fmt.Println("  none yet; `ryoku update` takes one before and after each update")
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "#\tTYPE\tDATE\tCLEANUP\tDESCRIPTION")
 	for _, s := range rows {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.number, s.kind, s.date, orDash(s.cleanup), orDash(s.description))
+		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n", s.number, shortSnapDate(s.date), s.kind, orDash(s.description))
 	}
 	w.Flush()
-
-	boot := "no (run: ryoku doctor)"
-	if snapshotsInBootMenu() {
-		boot = "yes"
-	}
 	fmt.Println()
+	summary := fmt.Sprintf("  %d snapshots", len(rows))
 	if free := rootFree(); free != "" {
-		fmt.Printf("%d snapshots \u00b7 %s free on / \u00b7 boot menu: %s\n", len(rows), free, boot)
-	} else {
-		fmt.Printf("%d snapshots \u00b7 boot menu: %s\n", len(rows), boot)
+		summary += ", " + free + " free on /"
 	}
-	fmt.Println("Restore one from the Limine \"Snapshots\" boot menu, or: ryoku rollback <#>")
+	if snapshotsInBootMenu() {
+		summary += ", listed in the Limine boot menu"
+	} else {
+		summary += ", NOT in the boot menu (ryoku doctor fixes that)"
+	}
+	fmt.Println(summary)
+	fmt.Println("  ryoku rollback <#>          shows how to boot into a snapshot and restore it")
+}
+
+// shortSnapDate trims snapper's "2026-09-03 22:10:06" to the minute.
+func shortSnapDate(d string) string {
+	if len(d) >= 16 {
+		return d[:16]
+	}
+	return d
 }
 
 // snapshotsInBootMenu reports whether limine-snapper-sync is in place to list

@@ -16,7 +16,8 @@ func TestChannelServerRoundTrips(t *testing.T) {
 			t.Fatalf("%s -> %s -> %q", ch, srv, got)
 		}
 	}
-	if ChannelServer("main") != "" || ChannelServer("v1") != "" || ChannelServer("releases/v1.0.0") != "" {
+	if ChannelServer("main") != "" || ChannelServer("v1") != "" || ChannelServer("releases/v1.0.0") != "" ||
+		ChannelServer("v0.56.0-beta.19.dev.363+g4d1cf63") != "" {
 		t.Fatal("non-channels must not map to a server")
 	}
 }

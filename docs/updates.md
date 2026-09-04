@@ -162,9 +162,10 @@ A release is a tag: `main` advances only by fast-forward from `unstable-dev`,
 and publishing nothing on that push. The maintainer runs **Stable Release**
 (`bump_type: none` tags the `VERSION` main already carries; a bump rewrites it
 first), which tags `main`, publishes `releases/<tag>/`, moves the stable
-pointer onto it, records the ledger entry, and dispatches the release ISO from
-that frozen directory. Arch itself keeps rolling between releases; only the
-Ryoku set is frozen.
+pointer onto it, records the ledger entry, and dispatches both release ISOs
+(plain Arch and CachyOS) from that frozen directory, so an ISO named for a
+release installs exactly that release. Arch itself keeps rolling between
+releases; only the Ryoku set is frozen.
 
 **Work on `unstable-dev` reaches testing on every push, and stable only when a
 release is tagged.**
@@ -263,6 +264,11 @@ island (when the channel serves the next line) and the Hub's Updates page.
 - The install-test workflow builds the ISO and runs a real, unattended install in
   a VM, then verifies the desktop comes up, so a broken install or a missing
   package is caught before a user hits it.
+- The publish (`publish-repo.yml`) builds and signs the repo once, keeps it as
+  a workflow artifact, installs ryoku-desktop from that artifact on Arch and
+  CachyOS with the release key verified (`installation/tests/container-install.sh`
+  with `RYOKU_PREBUILT_REPO=1`), and uploads the same artifact. What was tested
+  is byte-for-byte what ships; a run that fails the gate publishes nothing.
 - `bin/ryoku-dev-lint-qml <config-root>...` fails on QML that cannot load. The
   publish gate (`installation/tests/container-install.sh`) runs it over the
   materialized shell and Hub trees against the installed Qt modules, the same

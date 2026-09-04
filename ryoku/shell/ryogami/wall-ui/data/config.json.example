@@ -2,7 +2,7 @@
     "compositor": "hyprland",
     "monitor": "",
     "general": {
-        "closeOnSelection": false,
+        "closeOnSelection": true,
         "reopenAtLastSelection": false
     },
     "paths": {

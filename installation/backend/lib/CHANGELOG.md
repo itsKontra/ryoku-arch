@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Fixed
+- `deploy`/`bootloader`: **the Plymouth splash no longer breaks the install.**
+  `ryoku-desktop` (installed in the configure stage) already owns
+  `/usr/share/plymouth/themes/ryoku/`, but `bootloader` then laid a second,
+  unowned copy over it, so the package's own files read as strays and the first
+  `ryoku update` aborted with "exists in filesystem". `ryoku_boot_plymouth` now
+  only sets the default theme (guarded on the theme being present), never
+  re-deploys it. The desktop `pacman -S` (online and the baked-offline path) also
+  retries once with `--overwrite '*'`, so a resumed install adopts files a killed
+  first attempt left half-extracted instead of dying, matching `pacstrap`.
 - `pacstrap`: **a resumed install no longer dies on "exists in filesystem."**
   When the first pacstrap died mid-transaction (a dropped connection or a
   package that downloaded corrupt), it left some packages' files extracted but

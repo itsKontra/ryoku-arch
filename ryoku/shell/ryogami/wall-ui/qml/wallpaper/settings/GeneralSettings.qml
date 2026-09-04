@@ -88,8 +88,8 @@ Row {
 
             RowToggle {
                 colors: root.colors
-                title: "Close on selection"
-                description: "Hide the selector immediately after applying a wallpaper."
+                title: "Close on apply"
+                description: "Close the picker once a wallpaper, theme or rice is applied."
                 checked: Config.closeOnSelection
                 onToggle: function(v) { if (root.saveConfigKey) root.saveConfigKey("general.closeOnSelection", v) }
             }

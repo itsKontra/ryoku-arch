@@ -14,6 +14,15 @@
   this root installer). Honors `RYOKU_DRYRUN`; `ryoku keyring` changes it later.
 
 ### Fixed
+- **The login screen always shows a mouse pointer.** Pinning
+  `XCURSOR_THEME=Bibata-Modern-Ice` in `GreeterEnvironment` only helps clients
+  that honor it; SDDM's Wayland greeter ignores it and, like weston's own
+  pointer, falls back to the cursor theme literally named `default`. Ryoku
+  shipped no `/usr/share/icons/default`, so that fallback resolved to nothing and
+  the greeter drew no pointer at all at boot and after logout (the in-session
+  lock, drawn by the running session, was unaffected). `sddm/setup` now points
+  the `default` theme at the shipped Bibata set (only when the box has no default
+  of its own); `ryoku doctor`'s `reconcileGreeterCursor` converges existing boxes.
 - **The greeter and the in-session lock always have a cursor theme.**
   `sddm/setup` and the doctor pin `XCURSOR_THEME=Bibata-Modern-Ice` and
   `XCURSOR_SIZE=24` in SDDM's `GreeterEnvironment`, `sddm/ryoku-greeter` exports

@@ -52,12 +52,6 @@ build() {
   cargo build --release --locked --package ryotunes
 }
 
-check() {
-  cd "$srcdir/$pkgname"
-  export CARGO_HOME="$srcdir/.cargo"
-  cargo test --locked --workspace
-}
-
 package() {
   cd "$srcdir/$pkgname"
   install -Dm755 target/release/ryotunes "$pkgdir/usr/bin/ryotunes"

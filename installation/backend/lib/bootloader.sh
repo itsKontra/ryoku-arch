@@ -299,9 +299,17 @@ EOF
 }
 
 ryoku_boot_plymouth() {
-  log "deploying Plymouth theme 'ryoku'"
-  deploy_dir "$RYOKU_REPO/system/boot/plymouth/ryoku" /mnt/usr/share/plymouth/themes/ryoku
-  run arch-chroot /mnt plymouth-set-default-theme ryoku
+  # The ryoku-desktop package (installed in the configure stage, before this step)
+  # owns /usr/share/plymouth/themes/ryoku. Never lay a second, unowned copy here:
+  # pacman would then abort every later `-Syu` on "exists in filesystem" once the
+  # package owns that path. Just make it the default so the initramfs built next
+  # embeds it; ryoku-boot-apply re-asserts it on every update.
+  if [[ -n ${RYOKU_DRYRUN:-} || -d /mnt/usr/share/plymouth/themes/ryoku ]]; then
+    log "setting Plymouth default theme 'ryoku'"
+    run arch-chroot /mnt plymouth-set-default-theme ryoku
+  else
+    log "skip: Plymouth theme absent (desktop set not installed); ryoku-boot-apply sets it on the first update"
+  fi
 }
 
 # default_limine: write /etc/default/limine, swap @@CMDLINE@@ for the real

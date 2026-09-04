@@ -2162,6 +2162,12 @@ Item {
     property bool _notifBackendChecked: false
     property bool _notifRyokuShellBackend: false
     property bool _notifRyokuShellSystem: false
+    // Whether `makoctl` (the external mako DND source used in Omarchy-compat mode)
+    // is on PATH. Ryoku runs its own notification server and never ships mako, so
+    // this stays false there and the makoctl DND probe is skipped instead of
+    // failing to spawn on every status refresh (endless "binary not found" log
+    // spam). Detected once by makoDetectProc below.
+    property bool _makoAvailable: false
     readonly property string notificationsStatePath: Quickshell.env("HOME") + "/.local/state/ryoku/notifications.json"
     property bool screenRecording: false
     property int screenRecordingElapsed: 0
@@ -2227,6 +2233,7 @@ Item {
         _omarchyBackendRetryIndex = 0
         omarchyBackendProbeDebounce.restart()
         omarchyBackendConfirmTimer.restart()
+        if (!makoDetectProc.running) makoDetectProc.running = true
     }
     function parseNotificationsState(text) {
         try {
@@ -2242,7 +2249,10 @@ Item {
             notificationsStateFile.reload()
             return
         }
-        if (!dndProc.running) dndProc.running = true
+        // No Ryoku notification backend: read DND from mako, but only if it is
+        // actually installed. Without this guard the Process fails to spawn on
+        // every refresh (mako is not a Ryoku dependency), spamming the log.
+        if (_makoAvailable && !dndProc.running) dndProc.running = true
     }
     function refreshRecordingStatus() {
         if (recordingPidProc.running) {
@@ -2381,6 +2391,19 @@ Item {
         running: false
         onExited: (exitCode) => {
             if (!theme._idleRyokuShellSystem) theme.stayAwake = exitCode !== 0
+        }
+    }
+
+    // One-shot: is makoctl on PATH? Gates the DND probe above so a box without
+    // mako (every Ryoku box) never tries to spawn it. Re-runs when the backend is
+    // reprobed via resetRyokuBackendProbes(), so installing mako is picked up.
+    Process {
+        id: makoDetectProc
+        command: ["sh", "-c", "command -v makoctl"]
+        running: true
+        onExited: (exitCode) => {
+            theme._makoAvailable = exitCode === 0
+            if (theme._makoAvailable) theme.refreshNotificationStatus()
         }
     }
 

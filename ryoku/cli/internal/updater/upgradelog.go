@@ -41,14 +41,8 @@ var (
 // renderUpgrade runs argv, rendering a curated view of its output. phase is the
 // short label for the header ("System", "AUR", "Flatpak").
 func renderUpgrade(phase string, argv []string) error {
-	// pacman runs under sudo; prime the timestamp on the real terminal first so
-	// the piped transaction never blocks on an unseen password prompt.
-	for _, a := range argv {
-		if a == "sudo" {
-			_ = sys.Run("sudo", "-v")
-			break
-		}
-	}
+	// sudo is primed once up front by the update (primeSudo), so the piped
+	// transaction here never blocks on an unseen password prompt.
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return sys.Run(argv[0], argv[1:]...)
@@ -198,12 +192,7 @@ func (s *liveSpinner) close() {
 // lines) whose phase header the caller already narrated. Exit status is passed
 // through; a pipe failure degrades to raw passthrough.
 func renderQuiet(argv []string) error {
-	for _, a := range argv {
-		if a == "sudo" {
-			_ = sys.Run("sudo", "-v")
-			break
-		}
-	}
+	// sudo is primed once up front by the update (primeSudo); nothing to do here.
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return sys.Run(argv[0], argv[1:]...)

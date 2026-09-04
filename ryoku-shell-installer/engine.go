@@ -40,6 +40,16 @@ Server = https://repo.ryoku.dev/stable/$arch
 // base.packages via readBasePackages: the same manifest the ISO pacstraps.
 var ryokuPkgs = []string{"ryoku-keyring", "ryoku-desktop"}
 
+// ryokuOverwriteGlob names the ryoku-desktop-owned paths that a prior partial
+// install, a dev deploy, or the ISO installer can leave unowned on disk: the
+// privileged helpers, their polkit rules, and the Plymouth splash theme. The
+// desktop transaction --overwrites them so a resume or a conversion never aborts
+// on "exists in filesystem". Mirrors the ISO installer and `ryoku update`
+// (updater.ryokuOverwriteGlob); keep the three in sync.
+const ryokuOverwriteGlob = "/usr/bin/ryoku-*," +
+	"/usr/share/polkit-1/rules.d/*ryoku*.rules," +
+	"/usr/share/plymouth/themes/ryoku/*"
+
 // bootChainSkip: base.packages entries a shell-converted box must NOT get -- it
 // already owns its bootloader, initramfs, encryption and snapshot stack, and
 // (re)installing these would rewrite its boot. Everything else in base.packages
@@ -909,7 +919,21 @@ func stepPackages(e *engine) error {
 	}
 	// -Syu, not -S: a resumed run holds the db its first attempt synced, and
 	// a publish in between replaces or prunes the files that db points at.
-	return e.sudo(d.installArgs(pkgs)...)
+	return e.sudo(desktopPacmanArgs(d, pkgs)...)
+}
+
+// desktopPacmanArgs builds the package transaction for stepPackages. On Arch it
+// --overwrites the ryoku-desktop-owned paths a prior partial install, a dev
+// deploy, or the ISO installer can leave unowned (ryokuOverwriteGlob), so a
+// resume or a conversion adopts them instead of aborting the whole transaction on
+// "exists in filesystem". fromSource distros build from the payload and never take
+// this path, so they keep the plain install command.
+func desktopPacmanArgs(d *distro, pkgs []string) []string {
+	args := append([]string{}, d.installCmd...)
+	if d.id == "arch" {
+		args = append(args, "--overwrite", ryokuOverwriteGlob)
+	}
+	return append(args, pkgs...)
 }
 
 // dropSatisfied keeps only what no installed provider satisfies (pacman -T

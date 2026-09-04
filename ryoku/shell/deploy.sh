@@ -660,6 +660,14 @@ wireplumber_policy="$cfg/wireplumber/wireplumber.conf.d/51-ryoku-bluetooth.conf"
 wireplumber_before=
 [[ -f $wireplumber_policy ]] && wireplumber_before=$(<"$wireplumber_policy")
 
+# Files the machine owns after first boot are seeded once and never re-laid,
+# the same generatedSeed set `ryoku materialize` honours (ryoku/cli
+# internal/updater/materialize.go): the Hub and the store rewrite
+# fastfetch/config.jsonc in place (an imported logo lives in it), matugen owns
+# kitty/current-theme.conf. Re-copying them on every deploy is what reset the
+# fastfetch emblem on a dev box after each `ryoku update`.
+seed_once() { [[ -e $2 ]] || cp -a "$1" "$2"; }
+
 # Palette generation, per-app config, and the user session target.
 mkdir -p "$cfg/matugen"; cp -a "$here/matugen/." "$cfg/matugen/"
 mkdir -p "$cfg/fish"; cp -a "$here/../apps/fish/config.fish" "$cfg/fish/config.fish"
@@ -674,12 +682,12 @@ mkdir -p "$cfg/gtk-3.0"; cp -a "$here/gtk-3.0/settings.ini" "$cfg/gtk-3.0/settin
 mkdir -p "$cfg/gtk-4.0"; cp -a "$here/gtk-4.0/settings.ini" "$cfg/gtk-4.0/settings.ini"
 mkdir -p "$cfg/btop"; cp -a "$here/../apps/btop/btop.conf" "$cfg/btop/btop.conf"
 mkdir -p "$cfg/fastfetch"
-cp -a "$here/../apps/fastfetch/config.jsonc" "$cfg/fastfetch/config.jsonc"
-cp -a "$here/../assets/brand/fastfetch-emblem.png" "$cfg/fastfetch/fastfetch-emblem.png"
+seed_once "$here/../apps/fastfetch/config.jsonc" "$cfg/fastfetch/config.jsonc"
+seed_once "$here/../assets/brand/fastfetch-emblem.png" "$cfg/fastfetch/fastfetch-emblem.png"
 install -m755 "$here/../apps/fastfetch/ryoku-fastfetch" "$bindir/ryoku-fastfetch"
 mkdir -p "$cfg/kitty"
 cp -a "$here/../apps/kitty/kitty.conf" "$cfg/kitty/kitty.conf"
-cp -a "$here/../apps/kitty/current-theme.conf" "$cfg/kitty/current-theme.conf"
+seed_once "$here/../apps/kitty/current-theme.conf" "$cfg/kitty/current-theme.conf"
 mkdir -p "$cfg/wireplumber"; cp -a "$here/../apps/wireplumber/." "$cfg/wireplumber/"
 mkdir -p "$cfg/systemd/user"; cp -a "$here/systemd/user/." "$cfg/systemd/user/"
 # dev deploy runs the daemon from ~/.local/bin; the package ships /usr/bin.

@@ -113,18 +113,15 @@ build_pkg() {
   done
 }
 
-for pkgbuild in "${pkgbuilds[@]}"; do
-  pkgdir=$(dirname "$pkgbuild")
-  log "Building $(basename "$pkgdir")"
-  build_pkg "$pkgdir" || die "makepkg failed for $(basename "$pkgdir") after retries"
-done
-
-# 3. a published filename never changes bytes. makepkg is not reproducible,
-#    so a fixed-version package (gpk, ryoku-keyring) rebuilt here would
-#    overwrite its live file with new bytes and break every client holding
-#    the previous db ("Maximum file size exceeded", issue #21). a name the
-#    mirror already serves keeps its served bytes, re-signed; shipping a
-#    change means bumping pkgrel.
+# a published filename never changes bytes. makepkg is not reproducible, so
+# a fixed-version package (gpk, ryoku-keyring) rebuilt here would overwrite
+# its live file with new bytes and break every client holding the previous db
+# ("Maximum file size exceeded", issue #21). so a package whose output names
+# the mirror already serves is not built at all: its served bytes are copied
+# in and re-signed. this is what makes a release a promotion of the testing
+# build (same commit, same names, same bytes) instead of a rebuild, and spares
+# a pinned external (ryotunes, ryomotion, prowl-agent) its compile on every
+# push. shipping a change to a fixed-version package means bumping pkgrel.
 MIRROR=${RYOKU_REPO_MIRROR:-https://repo.ryoku.dev/stable/$REPO_ARCH}
 
 # from the mirror URL on a dev box, or from a directory when CI pre-fetched
@@ -136,6 +133,48 @@ fetch_published() {
   esac
 }
 
+# adopt_published <pkgdir>: 0 when every package the PKGBUILD would produce is
+# already on the mirror and has been copied in and signed; 1 when it must be
+# built. a -debug companion is taken when present and not required: makepkg
+# only emits one when the build leaves debug files behind.
+adopt_published() {
+  local pkgdir=$1 names=() f tmp main_missing=0
+  mapfile -t names < <(cd "$pkgdir" && makepkg --packagelist 2>/dev/null | xargs -rn1 basename)
+  (( ${#names[@]} > 0 )) || return 1
+  tmp=$(mktemp -d)
+  for f in "${names[@]}"; do
+    if fetch_published "$f" "$tmp/$f" && bsdtar -tf "$tmp/$f" >/dev/null 2>&1; then
+      continue
+    fi
+    rm -f "$tmp/$f"
+    [[ $f == *-debug-* ]] || main_missing=1
+  done
+  if (( main_missing )); then
+    rm -rf "$tmp"
+    return 1
+  fi
+  for f in "$tmp"/*.pkg.tar.zst; do
+    mv -f "$f" "$ARCH_DIR/$(basename "$f")"
+    gpg --batch --yes --detach-sign -u "$KEY_ID" -o "$ARCH_DIR/$(basename "$f").sig" "$ARCH_DIR/$(basename "$f")"
+  done
+  rm -rf "$tmp"
+  return 0
+}
+
+for pkgbuild in "${pkgbuilds[@]}"; do
+  pkgdir=$(dirname "$pkgbuild")
+  if adopt_published "$pkgdir"; then
+    log "Adopted published bytes for $(basename "$pkgdir") (already on the mirror; filenames are immutable once live)"
+    continue
+  fi
+  log "Building $(basename "$pkgdir")"
+  build_pkg "$pkgdir" || die "makepkg failed for $(basename "$pkgdir") after retries"
+done
+
+# 3. a published filename never changes bytes (see adopt_published above):
+#    a name that was built here anyway but which the mirror already serves
+#    keeps the served bytes, re-signed. the normal path adopts before
+#    building; this catches a name that appeared on the mirror meanwhile.
 for pkg in "$ARCH_DIR"/*.pkg.tar.zst; do
   name=$(basename "$pkg")
   if ! fetch_published "$name" "$pkg.published"; then

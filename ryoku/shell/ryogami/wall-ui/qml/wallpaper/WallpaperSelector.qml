@@ -67,10 +67,15 @@ Scope {
     service.selectedTypeFilter = ""
   }
 
+  function _closeAfterApply() {
+    if (Config.closeOnSelection) wallpaperSelector.showing = false
+  }
+
   function _applyItem(item, forcePicker) {
     if (item && item.kind === "theme") {
       Quickshell.execDetached(["ryoku-shell", "theme", item.id])
       wallpaperSelector.themesOpen = false
+      _closeAfterApply()
       return
     }
     if (item && item.kind === "rice") {
@@ -146,8 +151,7 @@ Scope {
     }
     onWallpaperApplied: {
       wallpaperSelector.wallpaperChanged()
-      if (Config.closeOnSelection)
-        wallpaperSelector.showing = false
+      _closeAfterApply()
     }
     onWallpaperApplyFailed: function(message) {
       console.warn("WallpaperSelector: keeping selector open after apply failure:", message)
@@ -2720,6 +2724,7 @@ Scope {
           Quickshell.execDetached(["ryoku-hub", "rice", "apply", slug, "all"])
           wallpaperSelector._workshopOpen = false
           wallpaperSelector.ricesOpen = false
+          _closeAfterApply()
         }
         onForkRequested: function(slug) {
           Quickshell.execDetached(["ryoku-hub", "rice", "fork", slug])

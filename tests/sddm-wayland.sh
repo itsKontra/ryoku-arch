@@ -24,4 +24,14 @@ for line in \
   grep -Fq "$line" <<<"$out" || fail "SDDM setup omits $line"
 done
 
+# The login screen draws its pointer from the freedesktop "default" cursor theme
+# when SDDM's Wayland greeter ignores XCURSOR_THEME; the setup must establish
+# that fallback (Inherits the shipped Bibata set) so the pointer is never blank.
+# Grep the source, not the dry-run: on a CI box that already has a default theme
+# the setup correctly skips the write.
+grep -Fq '/usr/share/icons/default' "$setup" ||
+  fail "SDDM setup does not establish the default cursor theme (login screen has no pointer)"
+grep -Fq 'Inherits=Bibata-Modern-Ice' "$setup" ||
+  fail "SDDM setup default cursor theme does not inherit the shipped Bibata set"
+
 printf 'sddm-wayland: PASS\n'

@@ -39,7 +39,7 @@ moves.
     <img src="https://img.youtube.com/vi/kx7VW4Mg0m4/maxresdefault.jpg" alt="Ryoku showcase: watch on YouTube" width="640" />
   </a>
   <br />
-  <sub>&#9654; <a href="https://youtu.be/kx7VW4Mg0m4">Watch the Ryoku showcase on YouTube</a></sub>
+  <sub>&#9654; <a href="https://youtu.be/kx7VW4Mg0m4">Watch the Ryoku showcase on YouTube</a> &middot; <a href="https://ryoku.dev/showroom">Showroom</a></sub>
 </p>
 
 </div>

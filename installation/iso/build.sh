@@ -45,6 +45,7 @@ export SOURCE_DATE_EPOCH
 PAYLOAD_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)
 PAYLOAD_DATE=$(git -C "$REPO_ROOT" log -1 --pretty=%cI 2>/dev/null || date -Iseconds)
 PAYLOAD_VERSION=$(tr -d '[:space:]' <"$REPO_ROOT/VERSION" 2>/dev/null || echo unknown)
+PAYLOAD_NAME=$(tr -d '[:space:]' <"$REPO_ROOT/CODENAME" 2>/dev/null || echo unknown)
 
 STAGE_ONLY=0
 [[ ${1:-} == --stage-only ]] && STAGE_ONLY=1
@@ -177,6 +178,7 @@ cat >"$AIROOTFS/usr/share/ryoku/.payload" <<EOF
 commit=$PAYLOAD_COMMIT
 date=$PAYLOAD_DATE
 version=$PAYLOAD_VERSION
+name=$PAYLOAD_NAME
 EOF
 
 # variant marker: the installer (ryoku-install) reads this to decide whether to
@@ -186,6 +188,7 @@ printf '%s\n' "$VARIANT" >"$AIROOTFS/usr/share/ryoku/variant"
 # fill the motd placeholders on the STAGED copy only (the committed motd keeps
 # the @...@ tokens), so the live shell greets with the baked version + commit.
 sed -i \
+  -e "s|@RYOKU_NAME@|$PAYLOAD_NAME|g" \
   -e "s|@RYOKU_VERSION@|$PAYLOAD_VERSION|g" \
   -e "s|@RYOKU_COMMIT@|${PAYLOAD_COMMIT:0:12}|g" \
   "$AIROOTFS/etc/motd"

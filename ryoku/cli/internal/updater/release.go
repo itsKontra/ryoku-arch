@@ -131,8 +131,12 @@ func Track(channel string) error {
 	}
 	cur := sys.PackagedChannel()
 	if cur == channel {
-		fmt.Printf("already on %s\n", channel)
-		return nil
+		if serves := channelServes(channel).Release; serves == "" || serves == sys.ReadRelease().Release {
+			fmt.Printf("already on %s\n", channel)
+			return nil
+		}
+		fmt.Printf("==> Already tracking %s; moving the Ryoku set to what it serves\n", channel)
+		return Update([]string{"--channel-switch"})
 	}
 	if cur == "" && sys.RyokuServer() != "" {
 		return fmt.Errorf("the [ryoku] repo points at %s, a mirror Ryoku does not publish; edit /etc/pacman.conf by hand", sys.RyokuServer())

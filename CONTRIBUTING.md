@@ -115,8 +115,9 @@ branch: squashing collapses commits and drops their notes.
 
 A release line carries a name (`CODENAME`, its story in `release/names.md`);
 the release is titled with it and a line's first release opens with the story.
-Starting a new line is one commit that changes `CODENAME` and adds the
-section, before the release that begins it.
+Starting a new line is one commit that changes `CODENAME`, adds the section
+and the line's ASCII mark (`ryoku/cli/internal/updater/art/<name>.txt`),
+before the release that begins it.
 
 ## Pull requests
 

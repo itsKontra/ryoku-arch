@@ -25,12 +25,16 @@ func Version(args []string) error {
 		}
 	}
 	base, sha := versionParts()
-	// --pretty: the line's name in front ("Onogoro v0.56.0-beta.19"), the form
-	// fastfetch's OS line shows; the plain output stays the bare release for
-	// the callers that parse it.
+	// --pretty: the line's name in front ("Onogoro v0.56.0-beta.19"); on a
+	// terminal the line's art above it. fastfetch and scripts read a pipe, so
+	// they get the one line.
 	if pretty {
 		name := ReleaseName()
 		if name != "" {
+			if sys.StdoutIsTTY() {
+				fmt.Print(sys.Brand(releaseArt(name)))
+				fmt.Println()
+			}
 			fmt.Printf("%s ", name)
 		}
 	}

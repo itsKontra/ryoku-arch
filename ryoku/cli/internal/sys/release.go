@@ -36,7 +36,11 @@ var PacmanConf = "/etc/pacman.conf"
 // release a box runs; a var for tests.
 var ReleaseFile = "/etc/ryoku-release"
 
-var releaseTagRe = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.+-]*)?$`)
+// the shape stable-release.yml tags (bin/ryoku-release-bump): a core version
+// with an optional alpha/beta/rc counter. a testing build's name
+// (v0.56.0-beta.19.dev.363+g4d1cf63) is deliberately not one: nothing frozen
+// stands behind it, so it can be neither tracked nor gone back to.
+var releaseTagRe = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$`)
 
 // IsReleaseTag reports whether s names a frozen release (v0.55.7-beta.19,
 // v1.0.0), the shape stable-release.yml tags.
@@ -144,7 +148,14 @@ func SetPackagedChannel(channel string) error {
 	if !done {
 		return fmt.Errorf("no [ryoku] repo in %s; run `ryoku doctor` to add it", PacmanConf)
 	}
-	return WriteRootFile(PacmanConf, strings.Join(lines, "\n"), "0644")
+	if err := WriteRootFile(PacmanConf, strings.Join(lines, "\n"), "0644"); err != nil {
+		return err
+	}
+	// the cached sync db describes the server the box just left; pacman only
+	// refetches a db it thinks is newer, so a stale copy against a frozen
+	// (older) release fails its signature check until it is gone.
+	return Sudo("rm", "-f", "/var/lib/pacman/sync/ryoku.db", "/var/lib/pacman/sync/ryoku.db.sig",
+		"/var/lib/pacman/sync/ryoku.files", "/var/lib/pacman/sync/ryoku.files.sig")
 }
 
 // WriteRootFile writes contents to a root-owned path through a temp file and

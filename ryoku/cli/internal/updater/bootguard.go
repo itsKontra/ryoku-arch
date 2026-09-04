@@ -161,7 +161,7 @@ func revertRelease(p pendingUpdate) error {
 	if sys.Has("nm-online") {
 		_ = sys.Run("nm-online", "-q", "--timeout=90")
 	}
-	if err := sys.Run("pacman", "-Sy", "--noconfirm"); err != nil {
+	if err := sys.Run("pacman", "-Syy", "--noconfirm"); err != nil {
 		fmt.Println("boot guard: package channel unreachable; retrying the revert next boot")
 		p.Boots--
 		b, _ := json.MarshalIndent(p, "", "  ")
@@ -169,7 +169,7 @@ func revertRelease(p pendingUpdate) error {
 		return nil
 	}
 	if err := sys.Run("env", "SNAP_PAC_SKIP=y", "pacman", "-S", "--noconfirm",
-		"--overwrite", "/usr/bin/ryoku-*,/usr/share/polkit-1/rules.d/*ryoku*.rules", "ryoku-desktop"); err != nil {
+		"--overwrite", ryokuOverwriteGlob, "ryoku-desktop"); err != nil {
 		return writeNotice(bootNotice{Action: "revert-failed", From: p.From, To: p.To, Snapshot: p.Snapshot, Detail: err.Error(), At: now()})
 	}
 	rematerializeUsers()

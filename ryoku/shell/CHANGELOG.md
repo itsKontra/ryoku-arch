@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Changed
+- **The Ryogami picker closes once something is applied.** Wallpaper, video,
+  Wallpaper Engine scene, theme or rice: the picker leaves as soon as the
+  apply lands. "Close on apply" in the picker's settings turns it back into
+  a stay-open browser (`ryogami/wall-ui/`).
+
+### Fixed
+- **A pinned dock icon no longer resets to a generic gear.** The dock resolved
+  each icon once through a plain function call, so a pin whose icon was not yet
+  findable at first paint -- a fresh boot before the icon-theme cache warms, or
+  right after an app (e.g. Zen Browser) updates its `.desktop`/icon -- stuck on the
+  generic `application-x-executable` fallback until a shell reload. Icon
+  resolution now re-runs reactively: on any desktop-database change and via a
+  bounded warm-up poll after load, so a pin recovers its real icon on its own. Both
+  the first-class dock and the qsbar rail dock go through the one resolver
+  (`services/Dock.qml`, `modules/bar/framebars/widgets/RailDock.qml`).
+- **The overview stops trying to decode a live wallpaper as an image.** Each
+  workspace cell drew the current wallpaper as a still `Image` backdrop, but a
+  live (video) wallpaper -- `.mp4`/`.webm`/`.mkv`/`.mov` -- has no still frame, so
+  every cell logged "Unsupported image format" and drew nothing. A video
+  wallpaper is now treated as no backdrop (the cell keeps its flat fill), matching
+  the `Session.wallIsVideo` check (`modules/overview/Singletons/Config.qml`).
+- **The bar no longer spawns `makoctl` forever on a box without mako.** The qsbar
+  do-not-disturb probe shelled out to `makoctl mode` on every status refresh;
+  Ryoku runs its own notification server and never ships mako, so the process
+  failed to start on repeat, spamming the log. The probe is now gated on a
+  one-shot `makoctl` PATH check, so it runs only where mako is actually installed
+  (`modules/bar/barstyles/qsbar/Theme.qml`).
+- **A dismissed notification no longer throws while its card animates out.**
+  `Notifs.timeLabel()` dereferenced the notification (`n.id`) without a null
+  guard, and the card passes `card.notif`, which is null once the service has
+  dropped a toast still easing off screen; it now returns "" for a null
+  notification (`services/Notifs.qml`).
+- **A dev deploy no longer resets the fastfetch emblem (or the kitty
+  palette).** `deploy.sh` re-copied `fastfetch/config.jsonc` and
+  `kitty/current-theme.conf` on every run, so each `ryoku update` on a
+  checkout box put the readout back on the shipped emblem and dropped an
+  imported logo or a decor picked in the Hub. Both are now seeded once and
+  never re-laid, the same generatedSeed set `ryoku materialize` honours on a
+  packaged box (`deploy.sh`).
+
 ### Added
 - **The update island and the Hub's Updates page name the release line.**
   The Hub shows "Ryoku Onogoro" over the version pair, and both say
@@ -33,6 +74,17 @@
   `core/widgets.json`).
 
 ### Fixed
+- **The audio graph no longer touches Quickshell's Pipewire structures mid-teardown.**
+  The shell already fed every audio Repeater from a debounced snapshot so a view
+  never rebuilds inside a node-removal dispatch, but the singleton's
+  `PwObjectTracker` still bound its object set to the live lists, so a mass audio
+  reset (a device flap, "Device or resource busy") that destroys every node rewrote
+  the tracked set on every single removal, inside the same dispatch. That is a
+  reported Quickshell segfault: a binding write into the Pipewire object tracker
+  while a node is being freed. The tracker now follows the settled snapshots (the
+  two default devices stay live so the bar volume reads instantly), so it never
+  re-tracks across a dying node and costs no immediacy, since no view shows a node
+  before it reaches the settled list (`services/Audio.qml`).
 - **The Rashin chat's skill list now shows the `ryoku` skill.** The sidebar
   listed slash-able skills by walking `~/.hermes/skills`, which does not follow
   the symlink `wire` lays for the shipped skill, so Hermes had the skill but the

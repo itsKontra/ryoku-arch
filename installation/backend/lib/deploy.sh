@@ -156,7 +156,13 @@ ryoku_deploy_packages() {
       # whole transaction over that with "could not find database".
       log "packages: installing the Ryoku desktop set from the baked [offline] repo: ${pkgs[*]}"
       if ! ryoku_offline_pacman -S --noconfirm --needed --noprogressbar "${pkgs[@]}"; then
-        die "the offline install laid the base system but could not install the Ryoku desktop set (${pkgs[*]}) from the ISO's baked [offline] repo. The base is bootable; check /var/log/ryoku-install.log for the failing package (a corrupt or conflicting package in the baked repo), then run 'ryoku update' once online."
+        # a re-run over a target a killed first attempt left half-extracted trips
+        # "exists in filesystem"; retry once with --overwrite to adopt the orphaned
+        # files (same recovery as pacstrap.sh), before giving up.
+        log "offline desktop set install failed; retrying once with --overwrite to adopt any half-extracted files"
+        if ! ryoku_offline_pacman -S --noconfirm --needed --noprogressbar --overwrite '*' "${pkgs[@]}"; then
+          die "the offline install laid the base system but could not install the Ryoku desktop set (${pkgs[*]}) from the ISO's baked [offline] repo. The base is bootable; check /var/log/ryoku-install.log for the failing package (a corrupt or conflicting package in the baked repo), then run 'ryoku update' once online."
+        fi
       fi
       return 0
     fi
@@ -176,8 +182,8 @@ ryoku_deploy_packages() {
   # \r-driven pacman bar would shred; the download still runs, just without the bar.
   if arch-chroot /mnt pacman -Sy --noprogressbar; then
     if ! arch-chroot /mnt pacman -S --noconfirm --needed --noprogressbar "${pkgs[@]}"; then
-      log "desktop set install failed (often a mid-download network flake); retrying once"
-      arch-chroot /mnt pacman -S --noconfirm --needed --noprogressbar "${pkgs[@]}" || rc=$?
+      log "desktop set install failed (a mid-download network flake, or files a killed first attempt left half-extracted); retrying once with --overwrite to adopt them"
+      arch-chroot /mnt pacman -S --noconfirm --needed --noprogressbar --overwrite '*' "${pkgs[@]}" || rc=$?
     fi
   else
     rc=1

@@ -114,10 +114,19 @@ Singleton {
     // track every node we show so its properties (media/app/codec metadata) and
     // live audio (volume, mute) populate. classification above reads only the
     // node's constant flags, so this never deadlocks on untracked properties.
-    // Tracked from the LIVE lists so metadata populates without the settle delay.
+    //
+    // Track the SETTLED lists, not the live ones. Rewriting a PwObjectTracker's
+    // object set inside Pipewire's node-removal dispatch mutates Quickshell's
+    // Pipewire structures mid-teardown -- the same hazard the view snapshots above
+    // avoid -- and a mass reset (a device flap, "Device or resource busy") churns
+    // the live lists on every single removal. The settled lists already exclude a
+    // node by the time the debounce fires, so the tracker never re-tracks across a
+    // dying node. The two default devices stay live so the bar volume/mute read
+    // immediately; they are single objects, not the per-removal churn, and no view
+    // shows a node before it reaches the settled list, so this costs no immediacy.
     PwObjectTracker {
         objects: [root.sink, root.source].filter(Boolean)
-            .concat(root.liveOutputs).concat(root.liveInputs).concat(root.liveStreams).concat(root.liveCaptureStreams)
+            .concat(root.outputs).concat(root.inputs).concat(root.streams).concat(root.captureStreams)
     }
 
     // --- device presentation ------------------------------------------------

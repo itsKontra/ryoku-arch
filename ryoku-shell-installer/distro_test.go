@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -105,5 +106,44 @@ func TestInstallArgs(t *testing.T) {
 	}
 	if got := fedoraLinux.removeArgs([]string{}); len(got) != 0 {
 		t.Errorf("fedora removeArgs([]) = %v, want empty/nil", got)
+	}
+}
+
+// desktopPacmanArgs must --overwrite the ryoku-desktop-owned paths a prior partial
+// install, a dev deploy, or the ISO installer can leave unowned (the bin helpers,
+// their polkit rules, and the Plymouth splash theme) so a resume or conversion
+// never aborts on "exists in filesystem". Dropping any path silently reintroduces
+// that outage, so pin coverage here. fromSource distros build from the payload and
+// must never carry --overwrite.
+func TestDesktopPacmanArgsAdoptsRyokuPaths(t *testing.T) {
+	args := desktopPacmanArgs(archLinux, []string{"ryoku-desktop"})
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--overwrite") {
+		t.Fatalf("arch desktop install missing --overwrite: %v", args)
+	}
+	var glob string
+	for i, a := range args {
+		if a == "--overwrite" && i+1 < len(args) {
+			glob = args[i+1]
+		}
+	}
+	for _, p := range []string{
+		"/usr/bin/ryoku-dns",
+		"/usr/share/polkit-1/rules.d/50-ryoku-dns.rules",
+		"/usr/share/plymouth/themes/ryoku/bullet.png",
+	} {
+		covered := false
+		for _, g := range strings.Split(glob, ",") {
+			if ok, _ := filepath.Match(g, p); ok {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			t.Errorf("--overwrite %q does not cover seeded path %q", glob, p)
+		}
+	}
+	if strings.Contains(strings.Join(desktopPacmanArgs(debianLinux, []string{"foo"}), " "), "--overwrite") {
+		t.Error("fromSource distro must not carry --overwrite")
 	}
 }

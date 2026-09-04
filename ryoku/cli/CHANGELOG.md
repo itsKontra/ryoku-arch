@@ -2,6 +2,70 @@
 
 ## Unreleased
 
+### Fixed
+- **Ryotunes opens the packaged app on every box.** A Chromium YouTube Music
+  wrapper or a locally built copy left in `~/.local/bin` shadowed
+  `/usr/bin/ryotunes` on PATH, so Super+J and the dock kept opening the old
+  Chrome window. The `ryotunes` reconciler removes that copy and its desktop
+  entry, installs the package on a box whose channel switch never did, and
+  flags an unowned `/usr/bin/ryotunes` (`internal/doctor/reconcile_ryotunes.go`).
+- **The login screen keeps its mouse pointer.** The SDDM greeter runs on a
+  weston kiosk, and where the greeter or weston falls back to the freedesktop
+  cursor theme literally named `default` (SDDM's Wayland greeter ignores
+  `XCURSOR_THEME`), a box with no `/usr/share/icons/default` drew no pointer at
+  all -- reproducible at every boot and after logout, while the in-session lock
+  (which the running Hyprland session draws) stayed fine. A new
+  `reconcileGreeterCursor` establishes the fallback, pointing `default` at the
+  shipped Bibata set, and only when the box has no default of its own so a user's
+  choice is left untouched (`internal/doctor/doctor.go`).
+- **Moving to an earlier release works on the first try.** `ryoku rollback
+  --to <tag>` (and `ryoku track` in general) failed with "invalid or
+  corrupted database (PGP signature)": pacman only refetches a sync db it
+  thinks is newer, and a frozen release directory is older than the channel
+  the box just left, so the stale cached db met the new signature. A channel
+  move now drops the cached `[ryoku]` sync db and runs `-Syyu`; the boot
+  guard's revert does the same. `ryoku track <x>` on a box already pointed at
+  x whose set never moved (a switch that failed midway) now finishes the move
+  instead of saying "already on x". The doctor's OS-line reconciler also
+  recognises the Hub-saved spelling of the line (`2\u003e`), which is what
+  every box that ever saved through the Hub carries (`internal/sys/release.go`,
+  `internal/updater/update.go`, `internal/updater/release.go`,
+  `internal/updater/bootguard.go`, `internal/doctor/doctor.go`).
+
+### Added
+- **Each release line has an ASCII mark.** `ryoku version --pretty` on a
+  terminal draws the line's art (Onogoro: the spear, the drop, the island
+  rising from the sea; Amaterasu: the sun) in brand vermilion above
+  "Onogoro v0.56.x". Piped output, which is what fastfetch and scripts read,
+  stays the one line (`internal/updater/art/`).
+
+### Changed
+- **`ryoku rollback` reads as two ways back.** It opens by saying what each
+  does (the Ryoku set to a published release, live; the whole system to a
+  snapshot, from the boot menu), then a RELEASES block (channel, the running
+  release, the ledger with the running one marked, the `--to` and
+  `track stable` commands) and a SNAPSHOTS block (id, minute, pre/post,
+  description; a one-line summary with free space and whether the boot menu
+  lists them). A checkout box is told releases do not apply to it instead of
+  being shown nothing. `ryoku rollback <id>` names the snapshot it guides
+  (`internal/updater/update.go`).
+
+### Added
+- **The doctor moves fastfetch's OS line to `ryoku version --pretty`.**
+  `fastfetch/config.jsonc` is seeded once and then owned by the box, so the
+  shipped change to the OS line never reached an existing install; the
+  `fastfetch OS line` reconciler rewrites that one command in place (the
+  BRANCH line and everything else untouched), so the readout says "Ryoku
+  Onogoro v0.56.x" everywhere (`internal/doctor/doctor.go`).
+
+### Fixed
+- **A testing build's name is not a release tag.** `v0.56.0-beta.19.dev.363+g4d1cf63`
+  matched the release-tag shape, so a box moving from testing to a release
+  armed the boot guard with a "previous release" nothing frozen stands behind
+  (a revert would have failed), and `ryoku track`/`rollback --to` accepted it.
+  Only `vX.Y.Z` with an optional `-alpha|beta|rc.N` counts now
+  (`internal/sys/release.go`).
+
 ### Added
 - **`ryoku version --pretty` leads with the release line's name** ("Onogoro
   v0.56.0-beta.19"; fastfetch's OS line uses it), and the name reaches
@@ -138,6 +202,27 @@
   placement; `validate <dir>` checks a local tree (`plugin.go`, `main.go`).
 
 ### Fixed
+- **`ryoku update` no longer needs a manual `sudo -v` first.** The first
+  escalation, the pre-update snapshot, ran through `sudo` with no terminal
+  attached, so on a fresh credential it could not prompt and the snapshot was
+  silently skipped; the only priming lived inside the pacman renderer and never
+  covered the snapshot, yay's own escalation, or the stage2 process. The update
+  now caches the credential once up front on the terminal (a single prompt, in the
+  hand-run terminal and the one-click kitty window alike) and refreshes it for the
+  duration, so the snapshot, pacman, yay, the post snapshot and doctor all run off
+  it. `sudo -v && ryoku update` is no longer needed (`internal/updater/update.go`,
+  `internal/updater/upgradelog.go`).
+- **`ryoku update` no longer aborts on the Plymouth splash theme.** Once
+  `ryoku-desktop` began owning `/usr/share/plymouth/themes/ryoku/`, boxes whose
+  ISO installer had seeded that theme unowned hit
+  `ryoku-desktop: /usr/share/plymouth/themes/ryoku/bullet.png exists in filesystem`
+  on the next `pacman -Syu`, and the whole transaction rolled back so no update
+  landed. The upgrade, the channel switch, and the boot-guard revert now
+  `--overwrite` the theme path alongside the privileged helpers and polkit rules
+  (one shared `ryokuOverwriteGlob`), and `ryoku doctor` clears the same unowned
+  theme files on a box already wedged so its next update adopts them
+  (`internal/updater/update.go`, `internal/updater/bootguard.go`,
+  `internal/doctor/doctor.go`).
 - **Doctor ignores Zen launcher-wrapper directories.** Zen installations must
   carry Firefox's `application.ini` marker before the policy reconciler treats
   them as an install root, so a `/usr/bin/zen-browser` wrapper no longer makes

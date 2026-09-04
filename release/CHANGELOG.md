@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### Changed
+- **A release dispatches both ISOs.** The publish ran only `build-iso.yml`
+  (plain Arch) after a release; `build-iso-cachyos.yml` is dispatched from the
+  same frozen release directory now, so the CachyOS ISO carries the release
+  too (`publish-repo.yml`).
+- **The release ledger is derived, not edited.** `bin/ryoku-release-ledger`
+  rebuilds `releases/index.json` from every `releases/<tag>/x86_64/release.json`
+  the bucket holds (newest first, `latest` = newest); the publish runs it
+  after a release lands and asserts the new tag is `latest`, and the Release
+  Ledger workflow rebuilds it on demand. The in-place jq edit it replaces read
+  a missing ledger as empty input (rclone cat of a missing key succeeds with
+  nothing) and published a zero-byte file on the first release. The publish
+  job also installs `github-cli` again, which the release ISO dispatch needs.
+- **`build-repo.sh` adopts before it builds.** A package whose output names
+  (`makepkg --packagelist`) the mirror already serves is not built: its bytes
+  are copied in and re-signed, the immutability rule applied up front instead
+  of after a wasted compile. A release is now a promotion of the testing build
+  (same commit, same names, same bytes; only ryoku-desktop, which carries the
+  channel marker, is rebuilt) and a testing push no longer recompiles a pinned
+  external (ryotunes, ryomotion, prowl-agent). The first tag publish spent 40
+  minutes hung inside ryotunes' upstream `cargo test` (an mpv integration
+  test) and hit the job timeout; that `check()` is gone from the PKGBUILD too:
+  the package build proves the binary builds, upstream CI owns its tests.
+- **The publish builds once and ships the bytes it tested.** `publish-repo.yml`
+  is now build -> gate -> publish: the build job signs the repo with the
+  release key and keeps it as a workflow artifact; the container gate installs
+  ryoku-desktop from that artifact on Arch and CachyOS with `SigLevel=Required`
+  against the release keyring (`container-install.sh RYOKU_PREBUILT_REPO=1`,
+  which skips the build toolchain and asserts the real release and channel
+  in `/etc/ryoku-release`); the publish job uploads the same artifact. The
+  gate used to build its own throwaway-key repo per base and the publish built
+  a third time (none of them the shipped bytes), and at 90 minutes the gate
+  timed out and the publish was silently skipped, which is how users sat on
+  an old stable for days. The rclone remote is written by one script,
+  `bin/ryoku-r2-config`, shared with the ISO workflow.
+
 ### Added
 - **Release lines have names.** `CODENAME` holds the current line's name
   (Onogoro before 1.0; Amaterasu for 1.0) and `release/names.md` tells each

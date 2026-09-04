@@ -3,6 +3,18 @@
 ## Unreleased
 
 ### Changed
+- **ISOs are named for their release and variant.** A release build produces
+  `ryoku-<date>-r<run>-<sha>-x86_64-v0.57.0-beta.19.iso` and, for CachyOS,
+  the same name ending `-cachyos.iso`; a build off `main` keeps `-main`. The
+  manifest reads the ref and variant back from the name, and the live ISO's
+  motd and payload stamp carry the line's name ("Ryoku Onogoro 0.57.0-beta.19
+  installer") (`build-iso-reusable.yml`, `bin/ryoku-iso-manifest`,
+  `iso/build.sh`, `iso/airootfs/etc/motd`).
+- `tests/container-install.sh`: **installs a prebuilt signed repo when
+  `RYOKU_PREBUILT_REPO=1`** (the publish's artifact, verified with the release
+  keyring at `SigLevel=Required`, no build toolchain) and asserts the release
+  and channel the publish named; a hand build still builds with a throwaway
+  key. Also asserts the boot guard ships and disarms on a proven boot.
 - `iso/build.sh`: **A release ISO bakes from its frozen release directory.**
   `RYOKU_ISO_REPO_URL` (the `repo_url` input of the ISO workflows, which
   `publish-repo.yml` passes for a tagged release) now reaches
