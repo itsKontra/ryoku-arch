@@ -232,10 +232,16 @@ func (d *distro) localAll(pkgs []string) []string {
 }
 
 func (d *distro) installArgs(pkgs []string) []string {
+	if len(pkgs) == 0 {
+		return nil
+	}
 	return append(append([]string{}, d.installCmd...), pkgs...)
 }
 
 func (d *distro) removeArgs(pkgs []string) []string {
+	if len(pkgs) == 0 {
+		return nil
+	}
 	return append(append([]string{}, d.removeCmd...), pkgs...)
 }
 

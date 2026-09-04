@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // The qt6ct-kde shape: an installed provider must drop the shipped name from
 // the install set instead of the run dying on the conflict prompt.
@@ -39,6 +43,23 @@ func TestDropSatisfiedFedora(t *testing.T) {
 	}
 	if !foundNonexistent {
 		t.Errorf("uninstalled package should be kept, got %v", res)
+	}
+}
+
+func TestStepPackagesAllSatisfiedNoop(t *testing.T) {
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "system", "packages")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "base.packages"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	customDistro := &distro{id: "fedora", name: "Fedora", fromSource: true, build: nil, installCmd: []string{"fail-if-called"}}
+	f := &facts{distro: customDistro}
+	e := &engine{f: f, p: &plan{}, payload: dir, dry: false}
+	if err := stepPackages(e); err != nil {
+		t.Errorf("stepPackages when all satisfied should return nil without running installCmd, got %v", err)
 	}
 }
 

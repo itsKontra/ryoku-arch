@@ -100,4 +100,10 @@ func TestInstallArgs(t *testing.T) {
 	if got != "dnf -y remove dunst" {
 		t.Errorf("fedora removeArgs = %q", got)
 	}
+	if got := fedoraLinux.installArgs(nil); len(got) != 0 {
+		t.Errorf("fedora installArgs(nil) = %v, want empty/nil", got)
+	}
+	if got := fedoraLinux.removeArgs([]string{}); len(got) != 0 {
+		t.Errorf("fedora removeArgs([]) = %v, want empty/nil", got)
+	}
 }

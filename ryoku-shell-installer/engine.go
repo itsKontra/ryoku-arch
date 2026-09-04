@@ -408,6 +408,9 @@ func sudoArgv(args []string, guarded bool) []string {
 }
 
 func (e *engine) sudo(args ...string) error {
+	if len(args) == 0 {
+		return nil
+	}
 	guarded := e.f != nil && len(e.f.omarchyGuards) > 0
 	return e.cmd("", nil, "sudo", append([]string{"-n"}, sudoArgv(args, guarded)...)...)
 }
@@ -894,6 +897,9 @@ func stepPackages(e *engine) error {
 		pkgs = append(pkgs, d.localAll(devPkgs)...)
 	}
 	pkgs = e.dropSatisfied(pkgs)
+	if len(pkgs) == 0 {
+		return nil
+	}
 	if d.id == "arch" {
 		// a .part resumed against a mirror whose bytes moved on trips pacman's
 		// size cap on every retry; dropping resume state just costs a re-download.
