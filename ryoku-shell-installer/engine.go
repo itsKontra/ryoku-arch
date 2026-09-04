@@ -753,12 +753,18 @@ func stepRepo(e *engine) error {
 		e.say("enabling Quickshell COPR repository (errornointernet/quickshell)")
 		if e.dry {
 			e.say("DRYRUN: dnf copr enable -y errornointernet/quickshell")
+			e.say("DRYRUN: dnf copr enable -y scottames/awww")
 			return nil
 		}
 		if err := e.sudo("dnf", "-y", "copr", "enable", "errornointernet/quickshell"); err != nil {
 			e.say("warning: could not enable errornointernet/quickshell COPR (continuing): " + err.Error())
 		} else {
 			e.say("enabled Quickshell COPR (errornointernet/quickshell)")
+		}
+		if err := e.sudo("dnf", "-y", "copr", "enable", "scottames/awww"); err != nil {
+			e.say("warning: could not enable scottames/awww COPR (continuing): " + err.Error())
+		} else {
+			e.say("enabled awww COPR (scottames/awww)")
 		}
 		return nil
 	}
@@ -1316,22 +1322,25 @@ func (e *engine) installDesktopExtras() {
 
 	// matugen: official precompiled binary release (zero-compile default)
 	if !has("matugen") {
+		if e.d().id == "fedora" {
+			_ = e.sudo("dnf", "-y", "install", "matugen")
+		}
+	}
+	if !has("matugen") && runtime.GOARCH == "amd64" {
 		dst := filepath.Join(binDir, "matugen")
 		if _, err := os.Stat(dst); os.IsNotExist(err) {
 			e.say("installing prebuilt matugen binary (zero-compile)")
-			cmd := fmt.Sprintf(`curl -fsSL --connect-timeout 10 -m 30 https://github.com/InioX/matugen/releases/download/v2.4.0/matugen-linux-x86_64.tar.gz | tar -xz -C %q matugen 2>/dev/null && chmod +x %q || true`, binDir, dst)
-			_ = exec.Command("sh", "-c", cmd).Run()
+			cmd := fmt.Sprintf(`curl -fsSL --connect-timeout 10 -m 30 https://github.com/InioX/matugen/releases/download/v4.2.0/matugen-4.2.0-x86_64.tar.gz | tar -xz -C %q matugen && chmod +x %q`, binDir, dst)
+			if out, err := exec.Command("sh", "-c", cmd).CombinedOutput(); err != nil {
+				e.say("warning: could not install prebuilt matugen: " + strings.TrimSpace(string(out)))
+			}
 		}
 	}
 
-	// awww: official precompiled binary release (zero-compile default)
-	if !has("awww") {
-		dst := filepath.Join(binDir, "awww")
-		if _, err := os.Stat(dst); os.IsNotExist(err) {
-			e.say("installing prebuilt awww wallpaper daemon and client (zero-compile)")
-			cmd := fmt.Sprintf(`curl -fsSL --connect-timeout 10 -m 30 https://github.com/LGFae/awww/releases/download/v0.12.1/awww-linux-x86_64.tar.gz | tar -xz -C %q 2>/dev/null && chmod +x %q %s || true`, binDir, dst, filepath.Join(binDir, "awww-daemon"))
-			_ = exec.Command("sh", "-c", cmd).Run()
-		}
+	// awww: wallpaper daemon and client
+	if !has("awww") && e.d().id == "fedora" {
+		e.say("installing awww via DNF")
+		_ = e.sudo("dnf", "-y", "install", "awww")
 	}
 
 	// gpk: GlazePKG prebuilt binary release
@@ -1363,6 +1372,15 @@ func (e *engine) installDesktopExtras() {
 		_ = os.MkdirAll(filepath.Join(fontsDir, "SpaceGrotesk"), 0o755)
 		e.say("installing Space Grotesk brand font")
 		cmd := fmt.Sprintf(`tmp=$(mktemp -d) && curl -fsSL --connect-timeout 10 -m 30 https://github.com/floriankarsten/space-grotesk/releases/download/2.0.0/SpaceGrotesk-2.0.0.zip -o "$tmp/sg.zip" && unzip -qo "$tmp/sg.zip" -d "$tmp" && cp -f "$tmp"/SpaceGrotesk-*/otf/*.otf %q/ 2>/dev/null; rm -rf "$tmp" || true`, filepath.Join(fontsDir, "SpaceGrotesk"))
+		_ = exec.Command("sh", "-c", cmd).Run()
+	}
+
+	// Material Symbols icon font: official variable TTF release
+	fontDst := filepath.Join(fontsDir, "MaterialSymbolsRounded.ttf")
+	if !pathExists(fontDst) && !pathExists("/usr/share/fonts/TTF/MaterialSymbolsRounded.ttf") && !pathExists("/usr/share/fonts/material-symbols/MaterialSymbolsRounded.ttf") {
+		_ = os.MkdirAll(fontsDir, 0o755)
+		e.say("installing Material Symbols icon font")
+		cmd := fmt.Sprintf(`curl -fsSL --connect-timeout 10 -m 30 "https://raw.githubusercontent.com/google/material-design-icons/master/variablefont/MaterialSymbolsRounded%%5BFILL%%2CGRAD%%2Copsz%%2Cwght%%5D.ttf" -o %q 2>/dev/null && fc-cache -f %q || true`, fontDst, fontsDir)
 		_ = exec.Command("sh", "-c", cmd).Run()
 	}
 }

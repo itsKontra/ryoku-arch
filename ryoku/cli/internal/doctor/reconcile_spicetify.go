@@ -183,11 +183,13 @@ var spicetifyExtensionEnabled = func() bool {
 // at all, which is every offline install, and it is what makes this reachable
 // from `ryoku update` instead of only from a manual `yay -S`.
 func installSpicetifyCli() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	err := exec.CommandContext(ctx, "sudo", "pacman", "-S", "--needed", "--noconfirm", "spicetify-cli").Run()
-	cancel()
-	if err == nil && sys.Has("spicetify") {
-		return true
+	if sys.Has("pacman") {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		err := exec.CommandContext(ctx, "sudo", "pacman", "-S", "--needed", "--noconfirm", "spicetify-cli").Run()
+		cancel()
+		if err == nil && sys.Has("spicetify") {
+			return true
+		}
 	}
 	for _, helper := range []string{"yay", "paru"} {
 		if !sys.Has(helper) {
@@ -208,11 +210,13 @@ func installSpicetifyCli() bool {
 // fallback for a box whose mirror list is stale. Mirrors installSpicetifyCli so
 // the writable client Ryoku ships reaches `ryoku update`, not just a manual pacman.
 var installSpotifyLauncher = func() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	err := exec.CommandContext(ctx, "sudo", "pacman", "-S", "--needed", "--noconfirm", "spotify-launcher").Run()
-	cancel()
-	if err == nil && sys.PkgInstalled("spotify-launcher") {
-		return true
+	if sys.Has("pacman") {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		err := exec.CommandContext(ctx, "sudo", "pacman", "-S", "--needed", "--noconfirm", "spotify-launcher").Run()
+		cancel()
+		if err == nil && sys.PkgInstalled("spotify-launcher") {
+			return true
+		}
 	}
 	for _, helper := range []string{"yay", "paru"} {
 		if !sys.Has(helper) {

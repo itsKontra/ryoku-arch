@@ -995,6 +995,33 @@ func reconcileIconFont(checkOnly bool) recResult {
 	if anyPkgInstalled("ttf-material-symbols-variable", "ttf-material-symbols-variable-git") {
 		return okRes("Material Symbols icon font installed")
 	}
+	userFont := filepath.Join(sys.Home(), ".local", "share", "fonts", "MaterialSymbolsRounded.ttf")
+	fontPaths := []string{
+		userFont,
+		"/usr/share/fonts/TTF/MaterialSymbolsRounded.ttf",
+		"/usr/share/fonts/material-symbols/MaterialSymbolsRounded.ttf",
+	}
+	for _, fp := range fontPaths {
+		if sys.Exists(fp) {
+			return okRes("Material Symbols icon font installed")
+		}
+	}
+	if !sys.Has("pacman") {
+		if checkOnly {
+			return wouldRes("Material Symbols font missing; every shell icon renders as its ligature name").
+				withFix("ryoku doctor downloads Material Symbols font to ~/.local/share/fonts")
+		}
+		fontsDir := filepath.Join(sys.Home(), ".local", "share", "fonts")
+		if err := os.MkdirAll(fontsDir, 0o755); err != nil {
+			return failRes("could not create font directory: %v", err)
+		}
+		cmd := fmt.Sprintf(`curl -fsSL --connect-timeout 10 -m 30 "https://raw.githubusercontent.com/google/material-design-icons/master/variablefont/MaterialSymbolsRounded%%%%5BFILL%%%%2CGRAD%%%%2Copsz%%%%2Cwght%%%%5D.ttf" -o %q 2>/dev/null && fc-cache -f %q`, userFont, fontsDir)
+		if err := exec.Command("sh", "-c", cmd).Run(); err != nil {
+			return failRes("could not download Material Symbols font: %v", err).
+				withFix("%s", `curl -fsSL -o ~/.local/share/fonts/MaterialSymbolsRounded.ttf "https://raw.githubusercontent.com/google/material-design-icons/master/variablefont/MaterialSymbolsRounded%5BFILL%2CGRAD%2Copsz%2Cwght%5D.ttf"`)
+		}
+		return fixedRes("installed the Material Symbols icon font; `ryoku reload` picks it up")
+	}
 	if checkOnly {
 		return wouldRes("Material Symbols font missing; every shell icon renders as its ligature name").
 			withFix("ryoku doctor installs ttf-material-symbols-variable")
@@ -1800,18 +1827,28 @@ func reconcileSessionComponents(_ bool) recResult {
 		return okRes("not a Hyprland desktop")
 	}
 	checks := []struct {
-		role, fix string
+		role, pkg string
 		any       []string
 	}{
-		{"authentication agent", "sudo pacman -S hyprpolkitagent", []string{"hyprpolkitagent", "polkit-gnome", "polkit-kde-agent", "lxsession"}},
-		{"desktop portal", "sudo pacman -S xdg-desktop-portal-hyprland", []string{"xdg-desktop-portal-hyprland"}},
-		{"audio server", "sudo pacman -S pipewire wireplumber", []string{"pipewire"}},
-		{"network manager", "sudo pacman -S networkmanager", []string{"networkmanager"}},
+		{"authentication agent", "hyprpolkitagent", []string{"hyprpolkitagent", "polkit-gnome", "polkit-kde-agent", "lxsession"}},
+		{"desktop portal", "xdg-desktop-portal-hyprland", []string{"xdg-desktop-portal-hyprland"}},
+		{"audio server", "pipewire", []string{"pipewire"}},
+		{"network manager", "networkmanager", []string{"networkmanager", "NetworkManager"}},
 	}
 	var missing []string
 	for _, c := range checks {
 		if !anyPkgInstalled(c.any...) {
-			missing = append(missing, fmt.Sprintf("%s [%s]", c.role, c.fix))
+			fix := "sudo pacman -S " + c.pkg
+			if !sys.Has("pacman") {
+				if sys.Has("dnf") {
+					fix = "sudo dnf install " + c.pkg
+				} else if sys.Has("apt-get") {
+					fix = "sudo apt-get install " + c.pkg
+				} else {
+					fix = "install " + c.pkg
+				}
+			}
+			missing = append(missing, fmt.Sprintf("%s [%s]", c.role, fix))
 		}
 	}
 	if len(missing) == 0 {
@@ -3608,10 +3645,17 @@ var ryokuSystemGlobs = []string{
 	"/usr/share/polkit-1/rules.d/*ryoku*.rules",
 }
 
-// pkgOwnsFile reports whether an installed package owns path. A var so tests stub
-// the probe without a real pacman database.
 var pkgOwnsFile = func(path string) bool {
-	return sys.Run("pacman", "-Qo", path) == nil
+	if sys.Has("pacman") {
+		return sys.Run("pacman", "-Qo", path) == nil
+	}
+	if sys.Has("rpm") {
+		return sys.Run("rpm", "-qf", path) == nil
+	}
+	if sys.Has("dpkg-query") {
+		return sys.Run("dpkg-query", "-S", path) == nil
+	}
+	return false
 }
 
 // strayRyokuFiles returns the files matching globs that pacman does not own: the

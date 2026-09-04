@@ -170,7 +170,7 @@ var fedoraLinux = &distro{
 
 		// Absent from official Fedora repos or pacman/Arch-specific.
 		// Handled directly as zero-compile prebuilt releases (installDesktopExtras):
-		"awww":                          "",
+		"awww":                          "awww",
 		"blesh":                         "",
 		"broadcom-bt-firmware":          "",
 		"game-devices-udev":             "",
