@@ -750,21 +750,36 @@ func stepConflicts(e *engine) error {
 
 func stepRepo(e *engine) error {
 	if e.d().id == "fedora" {
-		e.say("enabling Quickshell COPR repository (errornointernet/quickshell)")
-		if e.dry {
-			e.say("DRYRUN: dnf copr enable -y errornointernet/quickshell")
-			e.say("DRYRUN: dnf copr enable -y scottames/awww")
-			return nil
+		coprs := []struct {
+			name string
+			desc string
+		}{
+			{"sdegler/hyprland", "Hyprland compositor stack"},
+			{"errornointernet/quickshell", "Quickshell desktop engine"},
+			{"scottames/awww", "awww wallpaper daemon"},
+			{"atim/starship", "Starship prompt"},
+			{"atim/lazygit", "lazygit"},
+			{"lihaohong/yazi", "yazi"},
+			{"tofik/nwg-shell", "nwg-shell tools"},
+			{"erikreider/SwayNotificationCenter", "SwayNotificationCenter"},
+			{"alternateved/eza", "eza"},
+			{"opuk/bottom", "bottom"},
+			{"atim/lazydocker", "lazydocker"},
+			{"wezfurlong/wezterm-nightly", "wezterm-nightly"},
+			{"scottames/ghostty", "ghostty"},
+			{"errornointernet/packages", "wallust palette generator"},
 		}
-		if err := e.sudo("dnf", "-y", "copr", "enable", "errornointernet/quickshell"); err != nil {
-			e.say("warning: could not enable errornointernet/quickshell COPR (continuing): " + err.Error())
-		} else {
-			e.say("enabled Quickshell COPR (errornointernet/quickshell)")
-		}
-		if err := e.sudo("dnf", "-y", "copr", "enable", "scottames/awww"); err != nil {
-			e.say("warning: could not enable scottames/awww COPR (continuing): " + err.Error())
-		} else {
-			e.say("enabled awww COPR (scottames/awww)")
+		for _, c := range coprs {
+			if e.dry {
+				e.say("DRYRUN: dnf copr enable -y " + c.name)
+				continue
+			}
+			e.say("enabling " + c.desc + " COPR (" + c.name + ")")
+			if err := e.sudo("dnf", "-y", "copr", "enable", c.name); err != nil {
+				e.say("warning: could not enable " + c.name + " COPR (continuing): " + err.Error())
+			} else {
+				e.say("enabled " + c.desc + " COPR (" + c.name + ")")
+			}
 		}
 		return nil
 	}

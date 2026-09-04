@@ -1830,7 +1830,7 @@ func reconcileSessionComponents(_ bool) recResult {
 		role, pkg string
 		any       []string
 	}{
-		{"authentication agent", "hyprpolkitagent", []string{"hyprpolkitagent", "polkit-gnome", "polkit-kde-agent", "lxsession"}},
+		{"authentication agent", "hyprpolkitagent", []string{"hyprpolkitagent", "polkit-gnome", "polkit-kde-agent", "polkit-kde", "lxsession"}},
 		{"desktop portal", "xdg-desktop-portal-hyprland", []string{"xdg-desktop-portal-hyprland"}},
 		{"audio server", "pipewire", []string{"pipewire"}},
 		{"network manager", "networkmanager", []string{"networkmanager", "NetworkManager"}},
@@ -1838,16 +1838,26 @@ func reconcileSessionComponents(_ bool) recResult {
 	var missing []string
 	for _, c := range checks {
 		if !anyPkgInstalled(c.any...) {
-			fix := "sudo pacman -S " + c.pkg
+			pkg := c.pkg
 			if !sys.Has("pacman") {
 				if sys.Has("dnf") {
-					fix = "sudo dnf install " + c.pkg
+					if c.role == "authentication agent" {
+						pkg = "polkit-kde"
+					}
+					fix := "sudo dnf install " + pkg
+					missing = append(missing, fmt.Sprintf("%s [%s]", c.role, fix))
+					continue
 				} else if sys.Has("apt-get") {
-					fix = "sudo apt-get install " + c.pkg
+					fix := "sudo apt-get install " + pkg
+					missing = append(missing, fmt.Sprintf("%s [%s]", c.role, fix))
+					continue
 				} else {
-					fix = "install " + c.pkg
+					fix := "install " + pkg
+					missing = append(missing, fmt.Sprintf("%s [%s]", c.role, fix))
+					continue
 				}
 			}
+			fix := "sudo pacman -S " + pkg
 			missing = append(missing, fmt.Sprintf("%s [%s]", c.role, fix))
 		}
 	}

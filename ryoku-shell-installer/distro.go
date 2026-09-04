@@ -175,6 +175,7 @@ var fedoraLinux = &distro{
 		"broadcom-bt-firmware":          "",
 		"game-devices-udev":             "",
 		"gnome-themes-extra":            "",
+		"gpu-screen-recorder":           "",
 		"limine":                        "",
 		"limine-mkinitcpio-hook":        "",
 		"limine-snapper-sync":           "",

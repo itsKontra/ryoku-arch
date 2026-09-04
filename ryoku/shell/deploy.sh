@@ -675,6 +675,7 @@ mkdir -p "$cfg/gtk-4.0"; cp -a "$here/gtk-4.0/settings.ini" "$cfg/gtk-4.0/settin
 mkdir -p "$cfg/btop"; cp -a "$here/../apps/btop/btop.conf" "$cfg/btop/btop.conf"
 mkdir -p "$cfg/fastfetch"
 cp -a "$here/../apps/fastfetch/config.jsonc" "$cfg/fastfetch/config.jsonc"
+cp -a "$here/../assets/brand/fastfetch-emblem.png" "$cfg/fastfetch/fastfetch-emblem.png"
 install -m755 "$here/../apps/fastfetch/ryoku-fastfetch" "$bindir/ryoku-fastfetch"
 mkdir -p "$cfg/kitty"
 cp -a "$here/../apps/kitty/kitty.conf" "$cfg/kitty/kitty.conf"
