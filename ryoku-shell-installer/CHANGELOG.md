@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+- **Fedora Linux support.** The standalone shell installer supports Fedora
+  (and downstream like-distros like Nobara and Bazzite) via DNF and native
+  source/prebuilt deployment (`fromSource`). Scans host via `dnf`/`rpm`, maps
+  packages via `system/packages/fedora-base.packages`, configures the Quickshell
+  COPR, deploys prebuilt tools (matugen, awww, gpk, fonts, cursors), and
+  adapts library paths (`/usr/lib64`), PAM (`authselect`), NetworkManager,
+  and doctor reconcilers for RPM-based environments.
+
 ### Fixed
 - **Converting a box no longer aborts on the Plymouth splash theme.**
   `ryoku-desktop` owns `/usr/share/plymouth/themes/ryoku/`, so a resume after a
