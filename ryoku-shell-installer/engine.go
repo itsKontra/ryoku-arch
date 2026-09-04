@@ -1214,6 +1214,23 @@ func stepConfigs(e *engine) error {
 		}
 	}
 
+	// On Wayland, nvidia-settings -l fails (NV-CONTROL is X11-only). If the
+	// distro ships nvidia-settings-user.desktop in /etc/xdg/autostart (e.g. Fedora),
+	// mask it in ~/.config/autostart so systemd-xdg-autostart-generator skips it.
+	if _, err := os.Stat("/etc/xdg/autostart/nvidia-settings-user.desktop"); err == nil {
+		userAutostartDir := filepath.Join(e.f.homeDir, ".config/autostart")
+		userAutostartFile := filepath.Join(userAutostartDir, "nvidia-settings-user.desktop")
+		if e.dry {
+			e.say("DRYRUN: would mask nvidia-settings autostart in " + userAutostartFile)
+		} else if _, err := os.Lstat(userAutostartFile); err != nil {
+			_ = os.MkdirAll(userAutostartDir, 0o755)
+			content := "[Desktop Entry]\nType=Application\nName=nvidia-settings\nExec=nvidia-settings -l\nHidden=true\nX-systemd-skip=true\n"
+			if err := os.WriteFile(userAutostartFile, []byte(content), 0o644); err == nil {
+				e.say("masked nvidia-settings X11 autostart for Wayland -> " + userAutostartFile)
+			}
+		}
+	}
+
 	// salvaged monitor pins go in before the stub pass, real pins beat a
 	// comment stub. only the hyprland dialect supports desc: names.
 	if e.p.monPins && len(e.f.monOutputs) > 0 {

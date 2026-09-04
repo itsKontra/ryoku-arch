@@ -174,6 +174,7 @@ func reconcilers() []reconciler {
 		{"rashin agent daemon", reconcileRashinDaemon},
 		{"prowl-agent for rashin", reconcileProwlAgent},
 		{"recordings directory", reconcileRecordingsDir},
+		{"NVIDIA Wayland autostart", reconcileNvidiaAutostart},
 		{"failed services", reconcileFailedUnits},
 		{"btrfs device health", reconcileBtrfsHealth},
 		{"wireless regulatory domain", reconcileWifiRegdom},

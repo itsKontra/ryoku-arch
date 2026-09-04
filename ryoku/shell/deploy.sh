@@ -690,6 +690,21 @@ cp -a "$here/../apps/kitty/kitty.conf" "$cfg/kitty/kitty.conf"
 seed_once "$here/../apps/kitty/current-theme.conf" "$cfg/kitty/current-theme.conf"
 mkdir -p "$cfg/wireplumber"; cp -a "$here/../apps/wireplumber/." "$cfg/wireplumber/"
 mkdir -p "$cfg/systemd/user"; cp -a "$here/systemd/user/." "$cfg/systemd/user/"
+# On Wayland, nvidia-settings -l fails (NV-CONTROL is X11-only). If the
+# distro ships nvidia-settings-user.desktop in /etc/xdg/autostart (e.g. Fedora),
+# mask it in ~/.config/autostart so systemd-xdg-autostart-generator skips it.
+if [[ -f /etc/xdg/autostart/nvidia-settings-user.desktop && ! -f "$cfg/autostart/nvidia-settings-user.desktop" ]]; then
+  mkdir -p "$cfg/autostart"
+  cat <<'EOF' > "$cfg/autostart/nvidia-settings-user.desktop"
+[Desktop Entry]
+Type=Application
+Name=nvidia-settings
+Exec=nvidia-settings -l
+Hidden=true
+X-systemd-skip=true
+EOF
+  say "masked nvidia-settings X11 autostart for Wayland -> $cfg/autostart"
+fi
 # dev deploy runs the daemon from ~/.local/bin; the package ships /usr/bin.
 sed -i -e "s|^ExecStart=.*|ExecStart=$bindir/ryoku-shell daemon|" \
   -e "s|^ExecStartPre=.*|ExecStartPre=-$bindir/ryoku-shell quit|" "$cfg/systemd/user/ryoku-shell.service"
