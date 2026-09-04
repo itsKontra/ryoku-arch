@@ -169,6 +169,22 @@ type engine struct {
 
 func newEngine(f *facts, p *plan, dry bool, ref, payloadOverride string) *engine {
 	e := &engine{f: f, p: p, dry: dry, ref: ref, payloadOverride: payloadOverride}
+	if payloadOverride != "" {
+		if abs, err := filepath.Abs(payloadOverride); err == nil {
+			e.payload = abs
+			e.payloadOverride = abs
+		} else {
+			e.payload = payloadOverride
+		}
+	} else {
+		cache := os.Getenv("XDG_CACHE_HOME")
+		if cache == "" && f != nil && f.homeDir != "" {
+			cache = filepath.Join(f.homeDir, ".cache")
+		} else if cache == "" {
+			cache = filepath.Join(os.Getenv("HOME"), ".cache")
+		}
+		e.payload = filepath.Join(cache, "ryoku-shell-install/repo")
+	}
 	e.openLog()
 	// resuming continues the previous run's backup dir so restore.sh stays
 	// one script; declining starts a fresh state (the file is rewritten at
@@ -544,7 +560,13 @@ func stepPayload(e *engine) error {
 			return err
 		}
 	}
-	if err := e.cmd(e.payload, nil, "git", append([]string{"sparse-checkout", "set"}, sparsePaths...)...); err != nil {
+	paths := sparsePaths
+	if e.d().fromSource {
+		paths = []string{
+			"ryoku", "system", "release/packages/ryoku-keyring",
+		}
+	}
+	if err := e.cmd(e.payload, nil, "git", append([]string{"sparse-checkout", "set"}, paths...)...); err != nil {
 		return err
 	}
 	// a cache from an older installer can come out of the update missing paths
@@ -558,7 +580,7 @@ func stepPayload(e *engine) error {
 			"--branch", e.ref, repoURL, e.payload); err != nil {
 			return err
 		}
-		return e.cmd(e.payload, nil, "git", append([]string{"sparse-checkout", "set"}, sparsePaths...)...)
+		return e.cmd(e.payload, nil, "git", append([]string{"sparse-checkout", "set"}, paths...)...)
 	}
 	return nil
 }
@@ -920,16 +942,17 @@ func rpmProvides(cap string) bool {
 // Ryoku.Blobs plugin, then materializes the config. It skips the Hyprland
 // compositor plugins when makepkg is absent, which is the case off Arch.
 func stepBuild(e *engine) error {
-	script := filepath.Join(e.payload, "ryoku", "shell", "deploy.sh")
+	dir := filepath.Join(e.payload, "ryoku", "shell")
+	script := filepath.Join(dir, "deploy.sh")
 	if e.dry {
 		e.say("DRYRUN: would run " + script)
 		return nil
 	}
 	if _, err := os.Stat(script); err != nil {
-		return fmt.Errorf("payload is missing ryoku/shell/deploy.sh")
+		return fmt.Errorf("payload is missing ryoku/shell/deploy.sh (%s)", script)
 	}
 	e.say("building the desktop from the payload (this takes a few minutes)")
-	return e.cmd(filepath.Join(e.payload, "ryoku", "shell"), nil, "bash", script)
+	return e.cmd(dir, nil, "bash", script)
 }
 
 // filterByUnmet keeps only the names pacman -T reported as unmet.

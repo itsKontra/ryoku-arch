@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -722,6 +723,14 @@ func main() {
 	ref := flag.String("ref", envOr("RYOKU_SHELL_REF", "main"), "ryoku-arch git ref for the payload")
 	payload := flag.String("payload", os.Getenv("RYOKU_SHELL_PAYLOAD"), "use a local ryoku-arch checkout as the payload")
 	flag.Parse()
+
+	if *payload == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			if _, err := os.Stat(filepath.Join(cwd, "ryoku/lockscreen/install-qylock")); err == nil {
+				*payload = cwd
+			}
+		}
+	}
 
 	initGlyphs()
 
