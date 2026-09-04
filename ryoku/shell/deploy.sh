@@ -742,6 +742,30 @@ if command -v sudo >/dev/null 2>&1; then
 fi
 # chromium reads ~/.config/chromium-flags.conf at launch; pin its password store to the GNOME keyring.
 cp -a "$here/../apps/chromium-flags.conf" "$cfg/chromium-flags.conf"
+# On Fedora/RHEL, Chromium installs as /usr/bin/chromium-browser and does not read ~/.config/chromium-flags.conf.
+# Provide a ~/.local/bin/chromium wrapper that reads flags and execs chromium-browser.
+if ! command -v chromium >/dev/null 2>&1 || [[ "$(command -v chromium)" == "$bindir/chromium" ]]; then
+  if command -v chromium-browser >/dev/null 2>&1; then
+    cat > "$bindir/chromium" <<'EOF'
+#!/usr/bin/env bash
+flags=()
+flags_file="${XDG_CONFIG_HOME:-$HOME/.config}/chromium-flags.conf"
+if [[ -r "$flags_file" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"
+    line="$(echo "$line" | xargs)"
+    [[ -n "$line" ]] && flags+=("$line")
+  done < "$flags_file"
+fi
+exec /usr/bin/chromium-browser "${flags[@]}" "$@"
+EOF
+    chmod +x "$bindir/chromium"
+  fi
+fi
+if [[ ! -f "$appshare/applications/chromium.desktop" ]] && [[ -f /usr/share/applications/chromium-browser.desktop ]]; then
+  mkdir -p "$appshare/applications"
+  ln -sf /usr/share/applications/chromium-browser.desktop "$appshare/applications/chromium.desktop"
+fi
 # the screen-share source chooser xdph launches (hypr/xdph.conf names it). Its
 # stylesheet is matugen's, rendered to ~/.cache/ryoku/share-picker.css.
 mkdir -p "$cfg/hyprland-preview-share-picker"
