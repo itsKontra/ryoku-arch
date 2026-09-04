@@ -15,7 +15,13 @@ CHANNEL="main"
 # recovery never track different trees; legacy checkouts are consolidated below.
 DATA_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/ryoku"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/ryoku"
-RECOVERY_DIR="${RYOKU_RECOVERY_DIR:-$HOME/ryoku-arch}"
+if [[ -n ${RYOKU_RECOVERY_DIR:-} ]]; then
+  RECOVERY_DIR="$RYOKU_RECOVERY_DIR"
+elif git -C "$DATA_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  RECOVERY_DIR="$DATA_ROOT"
+else
+  RECOVERY_DIR="$DATA_ROOT/repo"
+fi
 ASSUME_YES=0
 DO_PACKAGES=1
 

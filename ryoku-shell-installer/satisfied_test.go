@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -26,6 +27,9 @@ func TestDropSatisfiedEmptyUnmetDropsAll(t *testing.T) {
 }
 
 func TestDropSatisfiedFedora(t *testing.T) {
+	if exec.Command("rpm", "-q", "--quiet", "git").Run() != nil {
+		t.Skip("git is not installed via rpm; skipping Fedora dropSatisfied test")
+	}
 	f := &facts{distro: fedoraLinux}
 	e := &engine{f: f, dry: false}
 	pkgs := []string{"git", "nonexistent-pkg-test-xyz"}
