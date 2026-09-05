@@ -538,6 +538,7 @@ Item {
             required property bool streaming
             required property bool failed
             required property string activityJson
+            required property string permJson
 
             width: ListView.view ? ListView.view.width : 0
             spacing: 5 * root.s
@@ -600,6 +601,54 @@ Item {
                             color: Theme.inkOn(Theme.effectiveSurface, Theme.onSurfaceVariant, 3.0)
                             font.family: Theme.fontPrimary
                             font.pixelSize: 11 * root.s
+                        }
+                    }
+
+                    // approval: hermes paused on a tool and waits for a pick
+                    Flow {
+                        readonly property var req: {
+                            try { return msg.permJson.length > 0 ? JSON.parse(msg.permJson) : null; }
+                            catch (e) { return null; }
+                        }
+                        width: parent.width
+                        spacing: 4 * root.s
+                        visible: !msg.isUser && msg.streaming && req !== null
+                        Repeater {
+                            // hermes usually offers its own reject option; add one only when it did not
+                            model: {
+                                var req = parent.req;
+                                if (!req) return [];
+                                var opts = req.options.slice();
+                                var hasReject = opts.some((o) => String(o.kind || "").indexOf("reject") >= 0);
+                                return hasReject ? opts : opts.concat([{ id: "", name: "Decline", kind: "reject" }]);
+                            }
+                            delegate: Rectangle {
+                                id: permBtn
+                                required property var modelData
+                                readonly property bool allow: modelData.id !== "" && String(modelData.kind || "").indexOf("reject") < 0
+                                height: 22 * root.s
+                                width: permLabel.implicitWidth + 16 * root.s
+                                radius: 6 * root.s
+                                color: allow
+                                    ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, pbArea.containsMouse ? 0.32 : 0.18)
+                                    : Qt.rgba(Theme.onSurface.r, Theme.onSurface.g, Theme.onSurface.b, pbArea.containsMouse ? 0.14 : 0.06)
+                                Text {
+                                    id: permLabel
+                                    anchors.centerIn: parent
+                                    text: String(permBtn.modelData.name || permBtn.modelData.id)
+                                    color: Theme.inkOn(Theme.effectiveSurface, permBtn.allow ? Theme.primary : Theme.onSurfaceVariant, 3.0)
+                                    font.family: Theme.mono
+                                    font.pixelSize: 8 * root.s
+                                    font.letterSpacing: 0.6
+                                }
+                                MouseArea {
+                                    id: pbArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: Needle.answerPermission(permBtn.modelData.id)
+                                }
+                            }
                         }
                     }
 

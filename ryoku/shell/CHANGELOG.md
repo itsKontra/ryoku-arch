@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Fixed
+- **The Super+S chat can approve a tool.** When hermes paused on an edit or a
+  command, the sidebar only showed "waiting for approval" with no way to
+  answer, so the turn dead-ended unless the dashboard was open. The permission
+  frame now carries hermes's options through `ryoku-rashin chat`, the bubble
+  shows them as buttons, and a pick answers over the new `--perm <id>
+  <option>` flag (`services/Needle.qml`, `modules/bar/panel/PanelChat.qml`,
+  `rashin/backend/chatcli.go`).
 - **In-shell video wallpapers can play sound again (#139).** The in-shell
   engine's QtMultimedia player was hardwired to `AudioOutput { muted: true }`,
   so a live wallpaper stayed silent even with audio turned on in the picker.
