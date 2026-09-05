@@ -23,7 +23,7 @@
 # pkgver when src-tauri/tauri.conf.json's version moves) to ship a new build.
 pkgname=ryotunes
 pkgver=2.4.1
-pkgrel=4
+pkgrel=5
 pkgdesc="Ryotunes: the Ryoku music app (YouTube Music client with native playback)"
 arch=('x86_64')
 url="https://github.com/neur0map/ryotunes"
@@ -45,7 +45,7 @@ conflicts=("${_legacy[@]}")
 replaces=("${_legacy[@]}")
 # Rust already strips with the release profile; the debug split has nothing.
 options=('!lto' '!debug')
-_commit=73e4e962b1eae42de3d007702e3b8e6b6a080c80
+_commit=fee1948e4c5174dbd80ad0f650cce763845a3366
 source=("$pkgname::git+https://github.com/neur0map/ryotunes.git#commit=$_commit")
 sha256sums=('SKIP')
 
